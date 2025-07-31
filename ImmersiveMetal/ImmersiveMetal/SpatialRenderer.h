@@ -9,6 +9,8 @@
 #import <CompositorServices/CompositorServices.h>
 #import <Metal/Metal.h>
 
+// === MAIN 3D RENDERER FOR VISION PRO ===
+// Orchestrates the complete 3D graphics pipeline using Metal
 class SpatialRenderer {
 public:
     SpatialRenderer(cp_layer_renderer_t layerRenderer, SRConfiguration *configuration);

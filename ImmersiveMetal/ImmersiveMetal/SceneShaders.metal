@@ -2,45 +2,53 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Vision Pro rendering mode selection (set by CPU)
 constant bool useLayeredRendering [[function_constant(0)]];
 
+// === VERTEX INPUT: CPU → GPU Data ===
 struct VertexIn {
-    float3 position  [[attribute(0)]];
-    float3 normal    [[attribute(1)]];
-    float2 texCoords [[attribute(2)]];
+    float3 position  [[attribute(0)]]; // 3D position in local space
+    float3 normal    [[attribute(1)]]; // Surface normal vector
+    float2 texCoords [[attribute(2)]]; // UV texture coordinates
 };
 
+// === VERTEX OUTPUT: Dedicated Rendering ===
 struct VertexOut {
-    float4 position [[position]];
-    float3 viewNormal;
-    float2 texCoords;
+    float4 position [[position]];      // Screen position (clip space)
+    float3 viewNormal;                 // Normal in camera space
+    float2 texCoords;                  // UV coordinates
 };
 
+// === VERTEX OUTPUT: Layered Rendering (Stereo) ===
 struct LayeredVertexOut {
     float4 position [[position]];
     float3 viewNormal;
     float2 texCoords;
-    uint renderTargetIndex [[render_target_array_index]];
-    uint viewportIndex [[viewport_array_index]];
+    uint renderTargetIndex [[render_target_array_index]]; // Which eye (0/1)
+    uint viewportIndex [[viewport_array_index]];          // Viewport routing
 };
 
+// === FRAGMENT INPUT: Interpolated Vertex Data ===
 struct FragmentIn {
-    float4 position [[position]];
-    float3 viewNormal;
-    float2 texCoords;
+    float4 position [[position]];     // Pixel screen position
+    float3 viewNormal;                // Interpolated normal
+    float2 texCoords;                 // Interpolated UV coordinates
     uint renderTargetIndex [[render_target_array_index]];
     uint viewportIndex [[viewport_array_index]];
 };
 
+// === GPU TRANSFORMATION DATA ===
 struct PoseConstants {
-    float4x4 projectionMatrix;
-    float4x4 viewMatrix;
+    float4x4 projectionMatrix;        // Camera → Screen transformation
+    float4x4 viewMatrix;              // World → Camera transformation
 };
 
 struct InstanceConstants {
     float4x4 modelMatrix;
 };
 
+// === VERTEX SHADER: DEDICATED RENDERING ===
+// Traditional approach: renders one eye at a time (separate render passes)
 [[vertex]]
 LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
                              constant PoseConstants *poses [[buffer(1)]],
@@ -103,6 +111,8 @@ LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
     return out;
 }
 
+// === VERTEX SHADER: DEDICATED RENDERING ===
+// Traditional approach: renders one eye at a time (separate render passes)
 [[vertex]]
 VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
                                 constant PoseConstants *poses [[buffer(1)]],
@@ -118,6 +128,8 @@ VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
     return out;
 }
 
+// === FRAGMENT SHADER: PIXEL COLOR CALCULATION ===
+// Runs once per pixel to determine final color output  
 [[fragment]]
 half4 fragment_main(FragmentIn in [[stage_in]],
                     texture2d<half, access::sample> texture [[texture(0)]])

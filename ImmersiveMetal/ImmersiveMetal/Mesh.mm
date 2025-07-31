@@ -3,6 +3,8 @@
 
 #import <ModelIO/ModelIO.h>
 
+// === TEXTURE LOADING UTILITY ===
+// Loads image files from app bundle and converts them to Metal textures for GPU use
 static id<MTLTexture> _Nullable CreateTextureFromImage(NSString *imageName, id<MTLDevice> device, NSError **error) {
     MTKTextureLoader *textureLoader = [[MTKTextureLoader alloc] initWithDevice:device];
     NSURL *imageURL = [[NSBundle mainBundle] URLForResource:imageName withExtension:nil];
@@ -10,6 +12,7 @@ static id<MTLTexture> _Nullable CreateTextureFromImage(NSString *imageName, id<M
     if (imageSource) {
         CGImageRef image = CGImageSourceCreateImageAtIndex(imageSource, 0, NULL);
         if (image) {
+            // Upload image data to GPU memory as a Metal texture
             id<MTLTexture> texture = [textureLoader newTextureWithCGImage:image options:nil error:error];
             CGImageRelease(image);
             return texture;
@@ -86,6 +89,7 @@ TexturedMesh::TexturedMesh(MDLMesh *mdlMesh, NSString *imageName, id<MTLDevice> 
     
     mdlMesh.vertexDescriptor = mdlVertexDescriptor;
     
+    // Convert ModelIO mesh to Metal-compatible format and upload to GPU
     _mesh = [[MTKMesh alloc] initWithMesh:mdlMesh device:device error:&error];
 }
 
@@ -154,7 +158,7 @@ SpatialEnvironmentMesh::SpatialEnvironmentMesh(NSString *imageName, CGFloat radi
                                        radialSegments:24
                                      verticalSegments:24
                                          geometryType:MDLGeometryTypeTriangles
-                                        inwardNormals:YES
+                                        inwardNormals:YES  // Makes sphere viewable from inside (skybox effect)
                                            hemisphere:NO
                                             allocator:bufferAllocator];
 
@@ -186,7 +190,10 @@ void SpatialEnvironmentMesh::setCutoffAngle(float cutoffAngle) {
     _cutoffAngle = cutoffAngle;
 }
 
+// === ENVIRONMENT MESH DRAW METHOD ===
+// Renders the 360° background sphere with mixed reality portal support
 void SpatialEnvironmentMesh::draw(id<MTLRenderCommandEncoder> renderCommandEncoder, PoseConstants *poseConstants, size_t poseCount) {
+    // Calculate portal cutoff angles for mixed reality blending
     float cutoffAngleMin = cos(simd_clamp(_cutoffAngle - _cutoffEdgeWidth, 0.0f, 180.0f) * (M_PI / 180.0f));
     float cutoffAngleMax = cos(simd_clamp(_cutoffAngle + _cutoffEdgeWidth, 0.0f, 180.0f) * (M_PI / 180.0f));
 

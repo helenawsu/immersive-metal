@@ -3,19 +3,22 @@ using namespace metal;
 
 #include "ShaderTypes.h"
 
+// Vision Pro rendering mode selection
 constant bool useLayeredRendering [[function_constant(0)]];
 
+// === ENVIRONMENT VERTEX INPUT ===
 struct VertexIn {
-    float3 position  [[attribute(0)]];
-    float3 normal    [[attribute(1)]];
-    float2 texCoords [[attribute(2)]];
+    float3 position  [[attribute(0)]]; // Vertex position (large sphere)
+    float3 normal    [[attribute(1)]]; // Inward-facing normals
+    float2 texCoords [[attribute(2)]]; // UV coordinates
 };
 
+// === ENVIRONMENT VERTEX OUTPUT ===
 struct VertexOut {
-    float4 position [[position]];
-    float3 modelNormal;
-    float2 texCoords;
-    float3 worldViewDirection;
+    float4 position [[position]];      // Screen position
+    float3 modelNormal;                // Normal in model space
+    float2 texCoords;                  // UV coordinates  
+    float3 worldViewDirection;         // View direction for portal effects
 };
 
 struct LayeredVertexOut {
@@ -23,7 +26,7 @@ struct LayeredVertexOut {
     float3 modelNormal;
     float2 texCoords;
     float3 worldViewDirection;
-    uint renderTargetIndex [[render_target_array_index]];
+    uint renderTargetIndex [[render_target_array_index]]; // Which eye
     uint viewportIndex [[viewport_array_index]];
 };
 
@@ -36,6 +39,8 @@ struct EnvironmentFragmentIn {
     uint viewportIndex [[viewport_array_index]];
 };
 
+// === ENVIRONMENT VERTEX SHADER: LAYERED RENDERING ===
+// Renders 360° background sphere using single-pass stereo
 [[vertex]]
 LayeredVertexOut vertex_environment(VertexIn in [[stage_in]],
                                     constant PoseConstants *poses [[buffer(1)]],
@@ -131,6 +136,8 @@ static float2 EquirectUVFromCubeDirection(float3 v) {
     return uv;
 }
 
+// === ENVIRONMENT FRAGMENT SHADER ===
+// Samples HDR environment texture with mixed reality portal effects
 [[fragment]]
 half4 fragment_environment(EnvironmentFragmentIn in [[stage_in]],
                            constant EnvironmentConstants &environment,

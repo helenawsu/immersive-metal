@@ -2,17 +2,23 @@
 
 #include <simd/simd.h>
 
+// === CPU-GPU DATA STRUCTURES ===
+// These structs define data passed from CPU to GPU shaders
+
+// Camera and view transformation data (per eye)
 struct PoseConstants {
-    simd_float4x4 projectionMatrix;
-    simd_float4x4 viewMatrix;
+    simd_float4x4 projectionMatrix; // 3D camera space → 2D screen space  
+    simd_float4x4 viewMatrix;       // World space → camera space
 };
 
+// Per-object transformation data
 struct InstanceConstants {
-    simd_float4x4 modelMatrix;
+    simd_float4x4 modelMatrix;      // Local object space → world space
 };
 
+// Environment sphere specific data
 struct EnvironmentConstants {
-    simd_float4x4 modelMatrix;
-    simd_float4x4 environmentRotation;
-    simd_float2 portalCutoffAngles; // x = cos(innerCutoffAngle); y = cos(outerCutoffAngle)
+    simd_float4x4 modelMatrix;      // Environment sphere transformation
+    simd_float4x4 environmentRotation; // Optional texture rotation
+    simd_float2 portalCutoffAngles; // Mixed reality portal: x=inner, y=outer cutoff cosines
 };
