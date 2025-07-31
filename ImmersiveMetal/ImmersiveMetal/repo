@@ -1,0 +1,101 @@
+# INLINE DOCUMENTATION STATUS
+
+I've successfully added comprehensive inline documentation to several key files in your Metal 3D graphics pipeline. Here's what has been completed and what remains:
+
+## ✅ COMPLETED FILES:
+
+### 1. SpatialRenderingEngine.mm (FULLY DOCUMENTED)
+- Added detailed header explaining the file's role in the graphics pipeline
+- Documented all imports with explanations of their purpose
+- Added comprehensive documentation to:
+  - SRConfiguration class and methods
+  - SpatialRenderingEngine class structure
+  - Constructor with detailed explanation of initialization steps
+  - Destructor with cleanup explanation
+  - Main runLoop() method with state management details
+  - Complete renderFrame() method with 5-stage pipeline explanation
+  - Private methods (runWorldTrackingARSession, createPoseForTiming)
+  - All member variables with their roles
+
+### 2. SpatialRenderer.mm (PARTIALLY DOCUMENTED)
+- Added comprehensive header explaining core graphics pipeline role
+- Documented imports and utility functions
+- Started constructor documentation
+
+## 🔄 REMAINING FILES TO DOCUMENT:
+
+### 3. SpatialRenderer.mm (CONTINUATION NEEDED)
+**Critical Methods to Document:**
+- `makeResources()` - 3D model and texture loading
+- `makeRenderPipelines()` - Shader compilation and pipeline setup
+- `drawAndPresent()` - Main frame rendering function
+- `poseConstantsForViewIndex()` - Stereoscopic camera matrix calculation
+- Depth stencil state setup methods
+- Viewport calculation methods
+
+### 4. Mesh.mm & Mesh.h
+**Key Documentation Needed:**
+- Base Mesh class and vertex descriptor setup
+- TexturedMesh class for standard 3D objects
+- SpatialEnvironmentMesh class for 360° environments
+- Draw methods and GPU resource binding
+- Portal cutoff angle calculations for mixed reality
+
+### 5. SceneShaders.metal
+**Shader Documentation Needed:**
+- Vertex shader transformation pipeline (MVP matrices)
+- Fragment shader texture sampling
+- Multi-view rendering support (vertex amplification)
+- Normal transformation for lighting
+
+### 6. EnvironmentShaders.metal
+**Environment Rendering Documentation:**
+- Equirectangular texture mapping
+- Portal effect calculations for mixed reality
+- View direction analysis and falloff
+- 360° environment sphere rendering
+
+### 7. ShaderTypes.h
+**Data Structure Documentation:**
+- PoseConstants (camera matrices for each eye)
+- InstanceConstants (per-object transformations)
+- EnvironmentConstants (portal settings)
+- Vertex input/output structures
+
+### 8. App.swift & ContentView.swift
+**SwiftUI Integration Documentation:**
+- Immersion state management
+- CompositorServices integration
+- Configuration parameter passing
+- UI controls for portal cutoff
+
+## 🎯 KEY AREAS FOR CONTINUED DOCUMENTATION:
+
+### A. CRITICAL RENDERING FUNCTIONS:
+The `drawAndPresent()` method in SpatialRenderer.mm is the most important function to document next, as it orchestrates the entire 3D rendering pipeline.
+
+### B. SHADER PROGRAMS:
+The Metal shaders contain the core 3D graphics algorithms and would benefit greatly from line-by-line documentation explaining the mathematics.
+
+### C. 3D MESH SYSTEM:
+The Mesh classes handle all geometry and texture management, crucial for understanding how 3D objects are processed.
+
+## 📋 DOCUMENTATION STYLE ESTABLISHED:
+
+The documentation follows a consistent pattern:
+- **File headers** explain the overall purpose and key responsibilities
+- **Function headers** describe parameters, return values, and importance in the pipeline
+- **Inline comments** explain complex operations and 3D graphics concepts
+- **Section breaks** (===) separate major pipeline stages
+- **Technical context** explains why each step is necessary for VR/AR rendering
+
+## 🚀 NEXT STEPS:
+
+To complete the inline documentation:
+
+1. **Continue with SpatialRenderer.mm** - Focus on `drawAndPresent()` method
+2. **Document the shader files** - These contain the core 3D graphics algorithms
+3. **Add Mesh system documentation** - Essential for understanding 3D object processing
+4. **Complete with SwiftUI files** - Show how the UI connects to the graphics pipeline
+
+Would you like me to continue with any specific file or method? The foundation is now in place with consistent documentation patterns that make the 3D graphics pipeline much more readable and educational.

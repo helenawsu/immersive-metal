@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "self:">
+   </FileRef>
+   <FileRef
+      location = "group:GRAPHICS_ARCHITECTURE_DOCUMENTATION.md">
+   </FileRef>
+   <FileRef
+      location = "group:DETAILED_CODE_WALKTHROUGH.md">
+   </FileRef>
+   <FileRef
+      location = "group:RENDERING_PIPELINE_SUMMARY.md">
+   </FileRef>
+</Workspace>
