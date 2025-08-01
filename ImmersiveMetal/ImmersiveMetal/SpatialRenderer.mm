@@ -13,7 +13,7 @@
 
 // === CONFIGURABLE INSTANCE COUNT ===
 // Change this value to render any number of boxes you want!
-static const int NUM_INSTANCES = 50;  // Easy to change - just modify this number!
+static const int NUM_INSTANCES = 50000;  // Easy to change - just modify this number!
 
 // === PLACEMENT CONFIGURATION ===
 static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box placement
@@ -68,14 +68,14 @@ void SpatialRenderer::makeResources() {
     // and render it multiple times with different transform matrices
     
     // Create ONE big box mesh (all instances will use this same geometry)
-    MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.1, 0.1, 0.1)
+    MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.005, 0.005, 0.005)
                                              segments:simd_make_uint3(1, 1, 1)
                                          geometryType:MDLGeometryTypeTriangles
                                         inwardNormals:NO
                                             allocator:bufferAllocator];
     
     // Create the single mesh object that all instances will share
-    _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"neon.jpg", _device);
+    _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"iridescent.jpg", _device);
     
     // === INSTANCE DATA SETUP ===
     // Create CPU array to hold transform matrices for each instance
@@ -103,7 +103,7 @@ void SpatialRenderer::makeResources() {
     
     for (int i = 0; i < NUM_INSTANCES; ++i) {
         float x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
-        float y = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;        // Random between 0 and 1
+        float y = 0.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;        // Random between 0 and 1
         float z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
         _particle_positions.push_back(simd_make_float3(x, y, z));
         x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
@@ -275,8 +275,8 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
 //            z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
 //        }
         
-        // Each box rotates at different speeds
-        float rotationSpeed = 0.5f + (i * 0.3f);
+        // Each box rotates at different speeds (much slower now)
+        float rotationSpeed = 0.1f + (i * 0.01f);  // Reduced from 0.5f and 0.3f
         float rotationAngle = _sceneTime * rotationSpeed;
         float c = cos(rotationAngle);
         float s = sin(rotationAngle);
@@ -296,9 +296,40 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         );
     }
     
-    //update next position for particles
+    //update next position for particles with dynamic drift
     for (int i = 0; i < NUM_INSTANCES; ++i) {
-        _particle_positions[i] = _particle_positions[i] + _particle_velocities[i] * 0.001f;
+        // Add some natural drift and variation to velocity
+        // Each particle gets slightly different random influences
+        float drift_strength = 0.15f;
+        simd_float3 drift = simd_make_float3(
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength,
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength,
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength
+        );
+        
+        // Apply gentle damping to prevent runaway velocities
+        float damping = 0.98f;
+        _particle_velocities[i] = _particle_velocities[i] * damping + drift;
+        
+        // Add some subtle orbital/circular motion around the center
+        simd_float3 center_pull = -_particle_positions[i] * 0.0001f;  // Gentle pull toward origin
+        _particle_velocities[i] = _particle_velocities[i] + center_pull;
+        
+        // Update position with the dynamic velocity
+        _particle_positions[i] = _particle_positions[i] + _particle_velocities[i] * timestep;
+        
+        // Optional: Add boundary constraints to keep particles in view
+        // Bounce off invisible walls to keep particles from drifting too far
+        const float boundary = 3.0f;
+        if (_particle_positions[i].x > boundary || _particle_positions[i].x < -boundary) {
+            _particle_velocities[i].x *= -0.8f;  // Reverse and dampen
+        }
+        if (_particle_positions[i].y > boundary || _particle_positions[i].y < -boundary) {
+            _particle_velocities[i].y *= -0.8f;
+        }
+        if (_particle_positions[i].z > boundary || _particle_positions[i].z < -boundary) {
+            _particle_velocities[i].z *= -0.8f;
+        }
     }
     
     // Copy the updated transforms to the GPU buffer

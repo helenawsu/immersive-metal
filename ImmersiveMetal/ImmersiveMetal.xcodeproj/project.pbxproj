@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		5D5627962E3BD9FA004A3666 /* repo in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627952E3BD9FA004A3666 /* repo */; };
 		5D5627982E3D3FE2004A3666 /* neon.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627972E3D3FE2004A3666 /* neon.jpg */; };
+		5D56279A2E3D7C0A004A3666 /* iridescent.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627992E3D7C09004A3666 /* iridescent.jpg */; };
 		830175B22A44AC87008CAD8B /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830175B12A44AC87008CAD8B /* App.swift */; };
 		830175B42A44AC87008CAD8B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830175B32A44AC87008CAD8B /* ContentView.swift */; };
 		830175BA2A44AC87008CAD8B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 830175B92A44AC87008CAD8B /* Assets.xcassets */; };
@@ -30,6 +31,7 @@
 /* Begin PBXFileReference section */
 		5D5627952E3BD9FA004A3666 /* repo */ = {isa = PBXFileReference; lastKnownFileType = text; path = repo; sourceTree = "<group>"; };
 		5D5627972E3D3FE2004A3666 /* neon.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = neon.jpg; sourceTree = "<group>"; };
+		5D5627992E3D7C09004A3666 /* iridescent.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = iridescent.jpg; sourceTree = "<group>"; };
 		830175AA2A44AC87008CAD8B /* ImmersiveMetal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ImmersiveMetal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		830175B12A44AC87008CAD8B /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		830175B32A44AC87008CAD8B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -105,6 +107,7 @@
 				830175C32A44ACB4008CAD8B /* Bridging.h */,
 				5D5627972E3D3FE2004A3666 /* neon.jpg */,
 				8394CE942A44E843005A8B04 /* bluemarble.png */,
+				5D5627992E3D7C09004A3666 /* iridescent.jpg */,
 				8394CE872A44DB1D005A8B04 /* studio.hdr */,
 				830175B92A44AC87008CAD8B /* Assets.xcassets */,
 				5D5627952E3BD9FA004A3666 /* repo */,
@@ -189,6 +192,7 @@
 				8394CE952A44E843005A8B04 /* bluemarble.png in Resources */,
 				5D5627982E3D3FE2004A3666 /* neon.jpg in Resources */,
 				830175BA2A44AC87008CAD8B /* Assets.xcassets in Resources */,
+				5D56279A2E3D7C0A004A3666 /* iridescent.jpg in Resources */,
 				5D5627962E3BD9FA004A3666 /* repo in Resources */,
 				8394CE882A44DB1D005A8B04 /* studio.hdr in Resources */,
 			);
