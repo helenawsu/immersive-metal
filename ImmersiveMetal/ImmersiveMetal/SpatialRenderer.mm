@@ -50,17 +50,24 @@ void SpatialRenderer::makeResources() {
     // - 24x24 segments: provides smooth curves while keeping vertex count reasonable
     // - Triangles: standard primitive type for 3D graphics
     // - inwardNormals: NO means normals point outward (standard for solid objects)
-    MDLMesh *sphereMesh = [MDLMesh newEllipsoidWithRadii:simd_make_float3(0.5, 0.5, 0.5)
-                                          radialSegments:24
-                                        verticalSegments:24
-                                            geometryType:MDLGeometryTypeTriangles
-                                           inwardNormals:NO
-                                              hemisphere:NO
-                                               allocator:bufferAllocator];
+//    MDLMesh *sphereMesh = [MDLMesh newEllipsoidWithRadii:simd_make_float3(0.5, 0.5, 0.5)
+//                                          radialSegments:24
+//                                        verticalSegments:24
+//                                            geometryType:MDLGeometryTypeTriangles
+//                                           inwardNormals:NO
+//                                              hemisphere:NO
+//                                               allocator:bufferAllocator];
+    MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(1.0, 1.0, 1.0)
+                                             segments:simd_make_uint3(1, 1, 1)
+                                         geometryType:MDLGeometryTypeTriangles
+                                        inwardNormals:NO
+                                            allocator:bufferAllocator];
     
     // Convert ModelIO mesh to Metal mesh and apply Earth texture
     // This creates vertex/index buffers on GPU and loads/processes the texture
-    _globeMesh = std::make_unique<TexturedMesh>(sphereMesh, @"bluemarble.png", _device);
+//    _globeMesh = std::make_unique<TexturedMesh>(sphereMesh, @"bluemarble.png", _device);
+    _globeMesh = std::make_unique<TexturedMesh>(boxMesh, @"bluemarble.png", _device);
+
 
     // === 360° ENVIRONMENT BACKGROUND ===
     // Create a large inverted sphere (3 meter radius) for the environment

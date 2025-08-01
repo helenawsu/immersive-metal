@@ -162,6 +162,7 @@ SpatialEnvironmentMesh::SpatialEnvironmentMesh(NSString *imageName, CGFloat radi
                                            hemisphere:NO
                                             allocator:bufferAllocator];
 
+
     MDLVertexDescriptor *mdlVertexDescriptor = [MDLVertexDescriptor new];
     mdlVertexDescriptor.attributes[0].name = MDLVertexAttributePosition;
     mdlVertexDescriptor.attributes[0].format = MDLVertexFormatFloat3;
