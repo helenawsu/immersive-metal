@@ -39,6 +39,10 @@ private:
     id<MTLBuffer> _instanceBuffer;                 // GPU buffer with 3 transform matrices
     std::vector<simd_float4x4> _instanceTransforms; // CPU array with 3 transforms
     
+    // === PARTICLE SYSTEM ===
+    std::vector<simd_float3> _particle_positions;  // Current positions of all particles
+    std::vector<simd_float3> _particle_velocities; // Velocities for particle movement
+    
     std::unique_ptr<SpatialEnvironmentMesh> _environmentMesh;
     SRConfiguration *_configuration;
     CFTimeInterval _sceneTime;

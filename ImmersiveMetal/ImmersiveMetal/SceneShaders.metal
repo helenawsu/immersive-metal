@@ -60,7 +60,6 @@ LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
     // 0 = left eye, 1 = right eye
     constant auto &pose = poses[amplificationID];
     
-    // === TRUE GPU INSTANCING ===
     // instanceID is automatically provided by GPU for each instance in the draw call
     // GPU handles all instances in parallel - much more efficient!
     constant auto &instanceMatrix = instanceMatrices[instanceID];

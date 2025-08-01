@@ -9,10 +9,11 @@
 
 #include <vector>
 #include <array>
+#include <cstdlib>  // For rand() and RAND_MAX
 
 // === CONFIGURABLE INSTANCE COUNT ===
 // Change this value to render any number of boxes you want!
-static const int NUM_INSTANCES = 8;  // Easy to change - just modify this number!
+static const int NUM_INSTANCES = 50;  // Easy to change - just modify this number!
 
 // === PLACEMENT CONFIGURATION ===
 static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box placement
@@ -92,6 +93,25 @@ void SpatialRenderer::makeResources() {
         
         _instanceTransforms[i] = simd_matrix4x4_translation(simd_make_float3(x, y, z));
     }
+    // === PARTICLE SYSTEM INITIALIZATION ===
+    // Initialize particle positions and velocities as member variables
+    _particle_positions.clear();
+    _particle_velocities.clear();
+    _particle_positions.reserve(NUM_INSTANCES);
+    _particle_velocities.reserve(NUM_INSTANCES);
+
+    
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        float x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+        float y = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;        // Random between 0 and 1
+        float z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+        _particle_positions.push_back(simd_make_float3(x, y, z));
+        x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+        y = (-1.0f + (static_cast<float>(rand()) / RAND_MAX)) * 2.0f;
+        z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+        _particle_velocities.push_back(simd_make_float3(x, y, z));
+    }
+
     
     // Create GPU buffer to hold the transform matrices
     // This buffer gets updated each frame and sent to the vertex shader
@@ -230,30 +250,30 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
 #else
     const float estimatedHeadHeight = 1.25;  // ~4 feet - comfortable standing height
 #endif
-
+    // Generate random particle positions for all instances
     // Update each instance transform with rotation + position
     for (int i = 0; i < NUM_INSTANCES; ++i) {
         float angle, x, y, z;
         
-        if (CIRCULAR_PLACEMENT) {
-            // === CIRCULAR 360° PLACEMENT ===
-            // Place boxes in a circle around the user for full 360° experience
-            float angleStep = (2.0f * M_PI) / NUM_INSTANCES;
-            angle = i * angleStep;
-            float radius = 1.0f;  // 1.5 meters from center - closer to avoid wall collisions
-            
-            x = radius * cos(angle);
-            y = estimatedHeadHeight;  // Raise boxes 0.5m higher to avoid floor occlusion
-            z = radius * sin(angle);
-        } else {
-            // === GRID PLACEMENT (Your original layout) ===
-            int row = i / 3;  // 3 boxes per row
-            int col = i % 3;
-            
-            x = -2.0f + (col * 1.5f);
-            y = estimatedHeadHeight - (row * 1.0f);
-            z = -2.5f;
-        }
+//        if (CIRCULAR_PLACEMENT) {
+//            // === CIRCULAR 360° PLACEMENT ===
+//            // Place boxes in a circle around the user for full 360° experience
+//            float angleStep = (2.0f * M_PI) / NUM_INSTANCES;
+//            angle = i * angleStep;
+//            float radius = 1.0f;  // 1.5 meters from center - closer to avoid wall collisions
+//            
+//            x = radius * cos(angle);
+//            y = estimatedHeadHeight;  // Raise boxes 0.5m higher to avoid floor occlusion
+//            z = radius * sin(angle);
+//        } else {
+//            // random placement
+//
+//            
+//            // Generate random positions
+//            x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+//            y = (static_cast<float>(rand()) / RAND_MAX) * estimatedHeadHeight;  // Random between 0 and estimatedHeadHeight
+//            z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+//        }
         
         // Each box rotates at different speeds
         float rotationSpeed = 0.5f + (i * 0.3f);
@@ -271,9 +291,14 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         
         // Combine rotation with position
         _instanceTransforms[i] = simd_mul(
-            simd_matrix4x4_translation(simd_make_float3(x, y, z)),
+            simd_matrix4x4_translation(_particle_positions[i]),
             rotation
         );
+    }
+    
+    //update next position for particles
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        _particle_positions[i] = _particle_positions[i] + _particle_velocities[i] * 0.001f;
     }
     
     // Copy the updated transforms to the GPU buffer
