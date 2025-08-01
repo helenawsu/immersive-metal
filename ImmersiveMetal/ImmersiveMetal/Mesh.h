@@ -25,6 +25,14 @@ public:
     TexturedMesh(MDLMesh *mdlMesh, NSString *imageName, id<MTLDevice> device);
 
     void draw(id<MTLRenderCommandEncoder> renderCommandEncoder, PoseConstants *poseConstants, size_t poseCount) override;
+    
+    // === GPU INSTANCING METHOD ===
+    // Draws multiple instances of this mesh with different transforms in a single draw call
+    void drawInstanced(id<MTLRenderCommandEncoder> renderCommandEncoder, 
+                      PoseConstants *poseConstants, 
+                      size_t poseCount,
+                      id<MTLBuffer> instanceBuffer,  // Buffer containing InstanceConstants array
+                      size_t instanceCount);         // Number of instances to draw
 
 protected:
     MTKMesh *_mesh;

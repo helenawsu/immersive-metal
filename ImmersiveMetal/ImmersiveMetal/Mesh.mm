@@ -145,6 +145,50 @@ void TexturedMesh::draw(id<MTLRenderCommandEncoder> renderCommandEncoder, PoseCo
     // GPU processes 3 indices at a time to form each triangle
 }
 
+void TexturedMesh::drawInstanced(id<MTLRenderCommandEncoder> renderCommandEncoder, 
+                                PoseConstants *poseConstants, 
+                                size_t poseCount,
+                                id<MTLBuffer> instanceBuffer,
+                                size_t instanceCount) {
+    // === MESH GEOMETRY BINDING ===
+    MTKSubmesh *submesh = _mesh.submeshes.firstObject;
+    MTKMeshBuffer *vertexBuffer = _mesh.vertexBuffers.firstObject;
+    
+    // === VERTEX SHADER RESOURCE BINDING ===
+    // Bind vertex data to buffer slot 0
+    [renderCommandEncoder setVertexBuffer:vertexBuffer.buffer 
+                                   offset:vertexBuffer.offset 
+                                  atIndex:0];
+    
+    // Bind camera/view data to buffer slot 1
+    [renderCommandEncoder setVertexBytes:poseConstants 
+                                  length:sizeof(PoseConstants) * poseCount 
+                                 atIndex:1];
+    
+    // === KEY DIFFERENCE: BIND INSTANCE BUFFER DIRECTLY ===
+    // The instance buffer now contains raw float4x4 matrices, not InstanceConstants structs
+    // This matches the updated shader that expects: constant float4x4 *instanceMatrices [[buffer(2)]]
+    [renderCommandEncoder setVertexBuffer:instanceBuffer 
+                                   offset:0 
+                                  atIndex:2];
+
+    // === FRAGMENT SHADER RESOURCE BINDING ===
+    [renderCommandEncoder setFragmentTexture:_texture atIndex:0];
+
+    // === GPU INSTANCED DRAW COMMAND ===
+    // This is the magic: ONE draw call renders ALL instances
+    // The GPU automatically provides instanceID (0, 1, 2, 3...) to the vertex shader
+    [renderCommandEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                                     indexCount:submesh.indexCount
+                                      indexType:submesh.indexType
+                                    indexBuffer:submesh.indexBuffer.buffer
+                              indexBufferOffset:submesh.indexBuffer.offset
+                                  instanceCount:instanceCount];  // GPU renders this many instances
+    
+    // Performance: Instead of N draw calls, we get 1 draw call with N instances
+    // GPU processes all instances in parallel using the same vertex data
+}
+
 SpatialEnvironmentMesh::SpatialEnvironmentMesh(NSString *imageName, CGFloat radius, id<MTLDevice> device) :
     TexturedMesh()
 {

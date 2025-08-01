@@ -43,86 +43,67 @@ struct PoseConstants {
     float4x4 viewMatrix;              // World → Camera transformation
 };
 
-struct InstanceConstants {
-    float4x4 modelMatrix;
-};
+// Removed InstanceConstants struct - now using direct float4x4 array for better performance
 
-// === VERTEX SHADER: DEDICATED RENDERING ===
-// Traditional approach: renders one eye at a time (separate render passes)
+// === VERTEX SHADER: LAYERED RENDERING WITH TRUE GPU INSTANCING ===
+// Renders multiple instances of the same mesh with different transform matrices
+// This version uses a single draw call with instanceCount > 1
 [[vertex]]
 LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
                              constant PoseConstants *poses [[buffer(1)]],
-                             constant InstanceConstants &instance [[buffer(2)]],
-                             uint amplificationID [[amplification_id]])
+                             constant float4x4 *instanceMatrices [[buffer(2)]], // Array of instance transform matrices
+                             uint amplificationID [[amplification_id]],
+                             uint instanceID [[instance_id]])  // GPU-provided instance index (0, 1, 2, 3...)
 {
     // === VERTEX AMPLIFICATION SETUP ===
     // amplificationID tells us which eye we're rendering for:
     // 0 = left eye, 1 = right eye
-    // With vertex amplification, this shader runs once but outputs to both eyes
     constant auto &pose = poses[amplificationID];
+    
+    // === TRUE GPU INSTANCING ===
+    // instanceID is automatically provided by GPU for each instance in the draw call
+    // GPU handles all instances in parallel - much more efficient!
+    constant auto &instanceMatrix = instanceMatrices[instanceID];
     
     LayeredVertexOut out;
     
     // === CORE 3D TRANSFORMATION PIPELINE (MVP) ===
-    // This is the heart of 3D graphics: transforming a vertex from object space to screen space
-    // The transformations happen in this specific order:
-    
-    // Step 1: MODEL TRANSFORMATION
-    // instance.modelMatrix transforms from local object space to world space
-    // This positions, rotates, and scales the object in the 3D world
-    
-    // Step 2: VIEW TRANSFORMATION  
-    // pose.viewMatrix transforms from world space to camera space
-    // This positions the virtual camera and determines what we're looking at
-    
-    // Step 3: PROJECTION TRANSFORMATION
-    // pose.projectionMatrix transforms from camera space to screen space
-    // This creates the perspective effect and maps 3D coordinates to 2D screen
-    
+    // Using the per-instance transform matrix directly
     out.position = pose.projectionMatrix *           // 3. 3D → 2D screen projection
                    pose.viewMatrix *                 // 2. World → Camera transformation
-                   instance.modelMatrix *            // 1. Object → World transformation
+                   instanceMatrix *                  // 1. Object → World (per-instance)
                    float4(in.position, 1.0f);       // Input vertex (w=1 for points)
     
     // === NORMAL VECTOR TRANSFORMATION ===
-    // Surface normals are used for lighting calculations
-    // They need special transformation because they're vectors (not points)
-    // Note: w=0.0 because normals are directions, not positions
-    out.viewNormal = (pose.viewMatrix * instance.modelMatrix * float4(in.normal, 0.0f)).xyz;
+    out.viewNormal = (pose.viewMatrix * instanceMatrix * float4(in.normal, 0.0f)).xyz;
     
     // === TEXTURE COORDINATE PROCESSING ===
-    // Pass through texture coordinates for fragment shader to sample textures
     out.texCoords = in.texCoords;
-    
-    // Flip horizontally to match ModelIO's coordinate system
-    // Different 3D modeling tools use different UV conventions
     out.texCoords.x = 1.0f - out.texCoords.x;
     
     // === MULTI-VIEW OUTPUT ROUTING ===
-    // Tell the GPU which eye's render target to output to
     if (useLayeredRendering) {
-        // Layered: Output to texture array slice (0=left eye, 1=right eye)
         out.renderTargetIndex = amplificationID;
     }
-    
-    // Set viewport index for viewport array (used in shared/layered modes)
     out.viewportIndex = amplificationID;
     
     return out;
 }
 
-// === VERTEX SHADER: DEDICATED RENDERING ===
-// Traditional approach: renders one eye at a time (separate render passes)
+// === VERTEX SHADER: DEDICATED RENDERING WITH TRUE GPU INSTANCING ===
+// Traditional approach: renders one eye at a time with true GPU instanced geometry
 [[vertex]]
 VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
                                 constant PoseConstants *poses [[buffer(1)]],
-                                constant InstanceConstants &instance [[buffer(2)]])
+                                constant float4x4 *instanceMatrices [[buffer(2)]], // Array of instance transform matrices
+                                uint instanceID [[instance_id]])  // GPU-provided instance index
 {
     constant auto &pose = poses[0];
+    constant auto &instanceMatrix = instanceMatrices[instanceID];  // Use instanceID to select transform
     
     VertexOut out;
-    out.position = pose.projectionMatrix * pose.viewMatrix * instance.modelMatrix * float4(in.position, 1.0f);
-    out.viewNormal = (pose.viewMatrix * instance.modelMatrix * float4(in.normal, 0.0f)).xyz;
+    out.position = pose.projectionMatrix * pose.viewMatrix * instanceMatrix * float4(in.position, 1.0f);
+    out.viewNormal = (pose.viewMatrix * instanceMatrix * float4(in.normal, 0.0f)).xyz;
     out.texCoords = in.texCoords;
     out.texCoords.x = 1.0f - out.texCoords.x; // Flip uvs horizontally to match Model I/O
     return out;

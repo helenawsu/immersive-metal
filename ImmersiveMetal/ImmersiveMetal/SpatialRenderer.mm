@@ -10,6 +10,13 @@
 #include <vector>
 #include <array>
 
+// === CONFIGURABLE INSTANCE COUNT ===
+// Change this value to render any number of boxes you want!
+static const int NUM_INSTANCES = 8;  // Easy to change - just modify this number!
+
+// === PLACEMENT CONFIGURATION ===
+static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box placement
+
 // Helper function to create translation matrix
 static simd_float4x4 simd_matrix4x4_translation(simd_float3 translation) {
     return simd_matrix(
@@ -56,11 +63,11 @@ void SpatialRenderer::makeResources() {
     MTKMeshBufferAllocator *bufferAllocator = [[MTKMeshBufferAllocator alloc] initWithDevice:_device];
     
     // === INSTANCED RENDERING SETUP ===
-    // Instead of creating 3 separate mesh objects, we create ONE mesh
-    // and render it 3 times with different transform matrices
+    // Instead of creating separate mesh objects, we create ONE mesh
+    // and render it multiple times with different transform matrices
     
     // Create ONE big box mesh (all instances will use this same geometry)
-    MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(1.0, 1.0, 1.0)
+    MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.1, 0.1, 0.1)
                                              segments:simd_make_uint3(1, 1, 1)
                                          geometryType:MDLGeometryTypeTriangles
                                         inwardNormals:NO
@@ -70,19 +77,25 @@ void SpatialRenderer::makeResources() {
     _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"neon.jpg", _device);
     
     // === INSTANCE DATA SETUP ===
-    const int INSTANCE_COUNT = 3;  // We want 3 boxes
-    
     // Create CPU array to hold transform matrices for each instance
-    _instanceTransforms.resize(INSTANCE_COUNT);
+    _instanceTransforms.resize(NUM_INSTANCES);
     
-    // Set up the 3 different positions (same as before, but stored differently)
-    _instanceTransforms[0] = simd_matrix4x4_translation(simd_make_float3(-2.0f, 1.25f, -1.5f)); // Left
-    _instanceTransforms[1] = simd_matrix4x4_translation(simd_make_float3( 0.0f, 1.25f, -1.5f)); // Center  
-    _instanceTransforms[2] = simd_matrix4x4_translation(simd_make_float3( 2.0f, 1.25f, -1.5f)); // Right
+    // Set up positions in a grid pattern
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        // Arrange boxes in a grid (you can modify this logic as needed)
+        int row = i / 3;  // 3 boxes per row instead of 4 to fit better in FOV
+        int col = i % 3;
+        
+        float x = -2.0f + (col * 1.5f);  // Reduced spacing and range to fit better in FOV
+        float y = 1.25f - (row * 1.0f);  // Each row 1 meter lower
+        float z = -2.5f;  // Moved further back to prevent near-plane clipping
+        
+        _instanceTransforms[i] = simd_matrix4x4_translation(simd_make_float3(x, y, z));
+    }
     
     // Create GPU buffer to hold the transform matrices
     // This buffer gets updated each frame and sent to the vertex shader
-    _instanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * INSTANCE_COUNT 
+    _instanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * NUM_INSTANCES 
                                             options:MTLResourceStorageModeShared];
 
     // === 360° ENVIRONMENT BACKGROUND ===
@@ -204,33 +217,49 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     CFTimeInterval renderTime = CACurrentMediaTime();
     CFTimeInterval timestep = MIN(renderTime - _lastRenderTime, 1.0 / 60.0);  // Cap at 60fps to prevent huge jumps
     _sceneTime += timestep;
+    _lastRenderTime = renderTime;
 
     // Get the current rendering layout configuration
     cp_layer_renderer_configuration_t layerConfiguration = cp_layer_renderer_get_configuration(_layerRenderer);
     cp_layer_renderer_layout layout = cp_layer_renderer_configuration_get_layout(layerConfiguration);
 
     // === 3D OBJECT ANIMATION ===
-    // Update the 3 instance transforms with different rotations
+    // Update all instance transforms with different rotations
 #if TARGET_OS_SIMULATOR
     const float estimatedHeadHeight = 0.0;  // Simulator doesn't need head height adjustment
 #else
     const float estimatedHeadHeight = 1.25;  // ~4 feet - comfortable standing height
 #endif
 
-    // Base positions for our 3 boxes
-    std::array<simd_float3, 3> positions = {{
-        simd_make_float3(-2.0f, estimatedHeadHeight, -1.5f),  // Left
-        simd_make_float3( 0.0f, estimatedHeadHeight, -1.5f),  // Center  
-        simd_make_float3( 2.0f, estimatedHeadHeight, -1.5f)   // Right
-    }};
-    
     // Update each instance transform with rotation + position
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        float angle, x, y, z;
+        
+        if (CIRCULAR_PLACEMENT) {
+            // === CIRCULAR 360° PLACEMENT ===
+            // Place boxes in a circle around the user for full 360° experience
+            float angleStep = (2.0f * M_PI) / NUM_INSTANCES;
+            angle = i * angleStep;
+            float radius = 1.0f;  // 1.5 meters from center - closer to avoid wall collisions
+            
+            x = radius * cos(angle);
+            y = estimatedHeadHeight;  // Raise boxes 0.5m higher to avoid floor occlusion
+            z = radius * sin(angle);
+        } else {
+            // === GRID PLACEMENT (Your original layout) ===
+            int row = i / 3;  // 3 boxes per row
+            int col = i % 3;
+            
+            x = -2.0f + (col * 1.5f);
+            y = estimatedHeadHeight - (row * 1.0f);
+            z = -2.5f;
+        }
+        
         // Each box rotates at different speeds
         float rotationSpeed = 0.5f + (i * 0.3f);
-        float angle = _sceneTime * rotationSpeed;
-        float c = cos(angle);
-        float s = sin(angle);
+        float rotationAngle = _sceneTime * rotationSpeed;
+        float c = cos(rotationAngle);
+        float s = sin(rotationAngle);
         
         // Create rotation matrix around Y-axis
         simd_float4x4 rotation = simd_matrix(
@@ -242,7 +271,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         
         // Combine rotation with position
         _instanceTransforms[i] = simd_mul(
-            simd_matrix4x4_translation(positions[i]),
+            simd_matrix4x4_translation(simd_make_float3(x, y, z)),
             rotation
         );
     }
@@ -251,7 +280,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     // This is the key efficiency: single memory copy for all instances
     memcpy([_instanceBuffer contents], 
            _instanceTransforms.data(), 
-           sizeof(simd_float4x4) * 3);
+           sizeof(simd_float4x4) * NUM_INSTANCES);
 
     // === MIXED REALITY PORTAL CONFIGURATION ===
     // Configure environment visibility based on immersion mode
@@ -260,7 +289,8 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         // This allows real-world passthrough to show through at the edges
         _environmentMesh->setCutoffAngle(_configuration.portalCutoffAngle);
     } else {
-        // Full immersion: Show complete 360° environment
+        // Full immersion: Show complete 360° environment with no cutoff
+        // Set to 180 degrees to show the full hemisphere (no edge clipping)
         _environmentMesh->setCutoffAngle(180);
     }
 
@@ -316,17 +346,17 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             _environmentMesh->draw(renderCommandEncoder, &poseConstantsForEnvironment[i], 1);
 
             // === CONTENT RENDERING (Foreground Objects) ===
-            // Render 3 boxes using SIMPLE APPROACH
-            // We'll make 3 separate draw calls, but each uses the same mesh
+            // Render all boxes using TRUE GPU INSTANCING
+            // ONE draw call renders ALL boxes with GPU parallelization
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
             
-            // Draw each box by setting its individual transform matrix
-            for (int boxIndex = 0; boxIndex < 3; ++boxIndex) {
-                _boxMesh->setModelMatrix(_instanceTransforms[boxIndex]);
-                _boxMesh->draw(renderCommandEncoder, &poseConstants[i], 1);
-            }
+            // Disable frustum culling if it's causing issues (uncomment to test)
+            // [renderCommandEncoder setCullMode:MTLCullModeNone];
+            
+            // Single instanced draw call for all boxes
+            _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
             [renderCommandEncoder endEncoding];
         }
@@ -357,11 +387,11 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];
         
-        // Draw each box with layered rendering (both eyes simultaneously)
-        for (int boxIndex = 0; boxIndex < 3; ++boxIndex) {
-            _boxMesh->setModelMatrix(_instanceTransforms[boxIndex]);
-            _boxMesh->draw(renderCommandEncoder, poseConstants.data(), viewCount);
-        }
+        // Disable frustum culling if it's causing issues (uncomment to test)
+        // [renderCommandEncoder setCullMode:MTLCullModeNone];
+        
+        // Single instanced draw call for all boxes with layered rendering (both eyes simultaneously)
+        _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
         [renderCommandEncoder endEncoding];
     }
