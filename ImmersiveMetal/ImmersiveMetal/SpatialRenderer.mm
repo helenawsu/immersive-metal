@@ -8,6 +8,17 @@
 #import <Spatial/Spatial.h>
 
 #include <vector>
+#include <array>
+
+// Helper function to create translation matrix
+static simd_float4x4 simd_matrix4x4_translation(simd_float3 translation) {
+    return simd_matrix(
+        simd_make_float4(1.0f, 0.0f, 0.0f, 0.0f),
+        simd_make_float4(0.0f, 1.0f, 0.0f, 0.0f),
+        simd_make_float4(0.0f, 0.0f, 1.0f, 0.0f),
+        simd_make_float4(translation.x, translation.y, translation.z, 1.0f)
+    );
+}
 
 static simd_float4x4 matrix_float4x4_from_double4x4(simd_double4x4 m) {
     return simd_matrix(simd_make_float4(m.columns[0][0], m.columns[0][1], m.columns[0][2], m.columns[0][3]),
@@ -44,30 +55,35 @@ void SpatialRenderer::makeResources() {
     // Create a Metal buffer allocator to manage GPU memory for mesh data
     MTKMeshBufferAllocator *bufferAllocator = [[MTKMeshBufferAllocator alloc] initWithDevice:_device];
     
-    // === MAIN 3D OBJECT: TEXTURED GLOBE ===
-    // Create a sphere mesh using ModelIO - this will be our main 3D content
-    // - Radius: 0.5 units (1 meter diameter)
-    // - 24x24 segments: provides smooth curves while keeping vertex count reasonable
-    // - Triangles: standard primitive type for 3D graphics
-    // - inwardNormals: NO means normals point outward (standard for solid objects)
-//    MDLMesh *sphereMesh = [MDLMesh newEllipsoidWithRadii:simd_make_float3(0.5, 0.5, 0.5)
-//                                          radialSegments:24
-//                                        verticalSegments:24
-//                                            geometryType:MDLGeometryTypeTriangles
-//                                           inwardNormals:NO
-//                                              hemisphere:NO
-//                                               allocator:bufferAllocator];
+    // === INSTANCED RENDERING SETUP ===
+    // Instead of creating 3 separate mesh objects, we create ONE mesh
+    // and render it 3 times with different transform matrices
+    
+    // Create ONE big box mesh (all instances will use this same geometry)
     MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(1.0, 1.0, 1.0)
                                              segments:simd_make_uint3(1, 1, 1)
                                          geometryType:MDLGeometryTypeTriangles
                                         inwardNormals:NO
                                             allocator:bufferAllocator];
     
-    // Convert ModelIO mesh to Metal mesh and apply Earth texture
-    // This creates vertex/index buffers on GPU and loads/processes the texture
-//    _globeMesh = std::make_unique<TexturedMesh>(sphereMesh, @"bluemarble.png", _device);
-    _globeMesh = std::make_unique<TexturedMesh>(boxMesh, @"bluemarble.png", _device);
-
+    // Create the single mesh object that all instances will share
+    _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"neon.jpg", _device);
+    
+    // === INSTANCE DATA SETUP ===
+    const int INSTANCE_COUNT = 3;  // We want 3 boxes
+    
+    // Create CPU array to hold transform matrices for each instance
+    _instanceTransforms.resize(INSTANCE_COUNT);
+    
+    // Set up the 3 different positions (same as before, but stored differently)
+    _instanceTransforms[0] = simd_matrix4x4_translation(simd_make_float3(-2.0f, 1.25f, -1.5f)); // Left
+    _instanceTransforms[1] = simd_matrix4x4_translation(simd_make_float3( 0.0f, 1.25f, -1.5f)); // Center  
+    _instanceTransforms[2] = simd_matrix4x4_translation(simd_make_float3( 2.0f, 1.25f, -1.5f)); // Right
+    
+    // Create GPU buffer to hold the transform matrices
+    // This buffer gets updated each frame and sent to the vertex shader
+    _instanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * INSTANCE_COUNT 
+                                            options:MTLResourceStorageModeShared];
 
     // === 360° ENVIRONMENT BACKGROUND ===
     // Create a large inverted sphere (3 meter radius) for the environment
@@ -126,7 +142,7 @@ void SpatialRenderer::makeRenderPipelines() {
         
         // Set vertex descriptor to match our mesh data structure
         // (position, normal, texture coordinates)
-        pipelineDescriptor.vertexDescriptor = _globeMesh->vertexDescriptor();
+        pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
         
         if (!layoutIsDedicated) {
             // === VERTEX AMPLIFICATION SETUP ===
@@ -193,27 +209,49 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     cp_layer_renderer_configuration_t layerConfiguration = cp_layer_renderer_get_configuration(_layerRenderer);
     cp_layer_renderer_layout layout = cp_layer_renderer_configuration_get_layout(layerConfiguration);
 
-    // === 3D OBJECT POSITIONING AND ANIMATION ===
-    // Position the globe at a comfortable viewing distance and height
+    // === 3D OBJECT ANIMATION ===
+    // Update the 3 instance transforms with different rotations
 #if TARGET_OS_SIMULATOR
     const float estimatedHeadHeight = 0.0;  // Simulator doesn't need head height adjustment
 #else
     const float estimatedHeadHeight = 1.25;  // ~4 feet - comfortable standing height
 #endif
 
-    // Create animated rotation around Y-axis using time-based trigonometry
-    float c = cos(_sceneTime * 0.5f);  // Cosine component for rotation
-    float s = sin(_sceneTime * 0.5f);  // Sine component for rotation
+    // Base positions for our 3 boxes
+    std::array<simd_float3, 3> positions = {{
+        simd_make_float3(-2.0f, estimatedHeadHeight, -1.5f),  // Left
+        simd_make_float3( 0.0f, estimatedHeadHeight, -1.5f),  // Center  
+        simd_make_float3( 2.0f, estimatedHeadHeight, -1.5f)   // Right
+    }};
     
-    // Build 4x4 transformation matrix combining rotation and translation
-    // This is a standard Model matrix in the Model-View-Projection pipeline
-    simd_float4x4 modelTransform = simd_matrix(
-        simd_make_float4(   c, 0.0f,    -s, 0.0f),  // X-axis rotated by angle
-        simd_make_float4(0.0f, 1.0f,  0.0f, 0.0f),  // Y-axis unchanged (rotation axis)
-        simd_make_float4(   s, 0.0f,     c, 0.0f),  // Z-axis rotated by angle
-        simd_make_float4(0.0f, estimatedHeadHeight, -1.5f, 1.0f)  // Translation: 1.5m forward, head height
-    );
-    _globeMesh->setModelMatrix(modelTransform);
+    // Update each instance transform with rotation + position
+    for (int i = 0; i < 3; ++i) {
+        // Each box rotates at different speeds
+        float rotationSpeed = 0.5f + (i * 0.3f);
+        float angle = _sceneTime * rotationSpeed;
+        float c = cos(angle);
+        float s = sin(angle);
+        
+        // Create rotation matrix around Y-axis
+        simd_float4x4 rotation = simd_matrix(
+            simd_make_float4(   c, 0.0f,   -s, 0.0f),
+            simd_make_float4(0.0f, 1.0f, 0.0f, 0.0f),
+            simd_make_float4(   s, 0.0f,    c, 0.0f),
+            simd_make_float4(0.0f, 0.0f, 0.0f, 1.0f)
+        );
+        
+        // Combine rotation with position
+        _instanceTransforms[i] = simd_mul(
+            simd_matrix4x4_translation(positions[i]),
+            rotation
+        );
+    }
+    
+    // Copy the updated transforms to the GPU buffer
+    // This is the key efficiency: single memory copy for all instances
+    memcpy([_instanceBuffer contents], 
+           _instanceTransforms.data(), 
+           sizeof(simd_float4x4) * 3);
 
     // === MIXED REALITY PORTAL CONFIGURATION ===
     // Configure environment visibility based on immersion mode
@@ -278,11 +316,17 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             _environmentMesh->draw(renderCommandEncoder, &poseConstantsForEnvironment[i], 1);
 
             // === CONTENT RENDERING (Foreground Objects) ===
-            // Render the 3D globe and any other foreground objects
+            // Render 3 boxes using SIMPLE APPROACH
+            // We'll make 3 separate draw calls, but each uses the same mesh
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
-            _globeMesh->draw(renderCommandEncoder, &poseConstants[i], 1);
+            
+            // Draw each box by setting its individual transform matrix
+            for (int boxIndex = 0; boxIndex < 3; ++boxIndex) {
+                _boxMesh->setModelMatrix(_instanceTransforms[boxIndex]);
+                _boxMesh->draw(renderCommandEncoder, &poseConstants[i], 1);
+            }
 
             [renderCommandEncoder endEncoding];
         }
@@ -312,7 +356,12 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];
-        _globeMesh->draw(renderCommandEncoder, poseConstants.data(), viewCount);
+        
+        // Draw each box with layered rendering (both eyes simultaneously)
+        for (int boxIndex = 0; boxIndex < 3; ++boxIndex) {
+            _boxMesh->setModelMatrix(_instanceTransforms[boxIndex]);
+            _boxMesh->draw(renderCommandEncoder, poseConstants.data(), viewCount);
+        }
 
         [renderCommandEncoder endEncoding];
     }

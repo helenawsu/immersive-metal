@@ -5,6 +5,7 @@
 #include "SpatialRenderingEngine.h"
 
 #include <memory>
+#include <vector>
 
 #import <CompositorServices/CompositorServices.h>
 #import <Metal/Metal.h>
@@ -31,7 +32,13 @@ private:
     id<MTLDepthStencilState> _contentDepthStencilState;
     id<MTLDepthStencilState> _backgroundDepthStencilState;
     cp_layer_renderer_t _layerRenderer;
-    std::unique_ptr<TexturedMesh> _globeMesh;
+    
+    // === SIMPLE INSTANCED RENDERING ===
+    // Single mesh rendered 3 times with different transforms
+    std::unique_ptr<TexturedMesh> _boxMesh;        // ONE mesh for all instances
+    id<MTLBuffer> _instanceBuffer;                 // GPU buffer with 3 transform matrices
+    std::vector<simd_float4x4> _instanceTransforms; // CPU array with 3 transforms
+    
     std::unique_ptr<SpatialEnvironmentMesh> _environmentMesh;
     SRConfiguration *_configuration;
     CFTimeInterval _sceneTime;
