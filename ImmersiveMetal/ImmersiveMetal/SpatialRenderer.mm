@@ -18,6 +18,10 @@ static const int NUM_INSTANCES = 50000;  // Easy to change - just modify this nu
 // === PLACEMENT CONFIGURATION ===
 static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box placement
 
+// === HAND REPULSION SETTINGS ===
+static const float REPULSION_RADIUS = 0.3f;    // Radius around hands that affects particles (30cm)
+static const float REPULSION_STRENGTH = 2.0f;  // How strong the repulsion force is
+
 // Helper function to create translation matrix
 static simd_float4x4 simd_matrix4x4_translation(simd_float3 translation) {
     return simd_matrix(
@@ -56,6 +60,21 @@ SpatialRenderer::SpatialRenderer(cp_layer_renderer_t layerRenderer, SRConfigurat
 
     // Step 2: Create the rendering pipeline states that define how vertices and pixels are processed
     makeRenderPipelines();
+}
+
+void SpatialRenderer::updateHandPositions(const std::vector<simd_float3>& handPositions) {
+    // === THREAD-SAFE HAND POSITION UPDATE ===
+    // Update the internal hand positions vector with new data from ARKit
+    _handPositions = handPositions;
+    
+    // Debug logging
+    if (!handPositions.empty()) {
+        NSLog(@"SpatialRenderer: Updated with %zu hand positions", handPositions.size());
+        for (size_t i = 0; i < handPositions.size(); ++i) {
+            const simd_float3& pos = handPositions[i];
+            NSLog(@"  Hand %zu: (%.3f, %.3f, %.3f)", i, pos.x, pos.y, pos.z);
+        }
+    }
 }
 
 void SpatialRenderer::makeResources() {
@@ -99,6 +118,9 @@ void SpatialRenderer::makeResources() {
     _particle_velocities.clear();
     _particle_positions.reserve(NUM_INSTANCES);
     _particle_velocities.reserve(NUM_INSTANCES);
+    
+    // === HAND TRACKING INITIALIZATION ===
+    _handPositions.clear();  // Start with no hands detected
 
     
     for (int i = 0; i < NUM_INSTANCES; ++i) {
@@ -296,8 +318,50 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         );
     }
     
+    // === HAND TRACKING AND REPULSION SYSTEM ===
+    // Apply repulsion forces from detected hands to create interactive particle effects
+    std::vector<simd_float3> handPositions = _handPositions;  // Copy for thread safety
+    
+    // Debug: Show when hands are being processed
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0 && !handPositions.empty()) {  // Log every 60 frames (once per second at 60fps)
+        NSLog(@"Processing %zu hands for repulsion", handPositions.size());
+    }
+    
     //update next position for particles with dynamic drift
     for (int i = 0; i < NUM_INSTANCES; ++i) {
+        // === HAND REPULSION FORCES ===
+        // Calculate repulsion from all detected hands
+        simd_float3 repulsionForce = simd_make_float3(0.0f, 0.0f, 0.0f);
+        bool particleAffected = false;  // Track if this particle is being repelled
+        
+        for (const auto& handPos : handPositions) {
+            // Calculate vector from hand to particle
+            simd_float3 handToParticle = _particle_positions[i] - handPos;
+            float distance = simd_length(handToParticle);
+            
+            // Apply repulsion if particle is within repulsion radius
+            if (distance < REPULSION_RADIUS && distance > 0.001f) {  // Avoid division by zero
+                // Normalize direction vector
+                simd_float3 direction = handToParticle / distance;
+                
+                // Calculate falloff: stronger force when closer to hand
+                // Uses inverse square law with minimum distance to prevent infinite forces
+                float falloff = 1.0f - (distance / REPULSION_RADIUS);  // Linear falloff
+                falloff = falloff * falloff;  // Square for more dramatic effect
+                
+                // Apply repulsion force
+                repulsionForce += direction * REPULSION_STRENGTH * falloff;
+                particleAffected = true;
+            }
+        }
+        
+        // Debug: Show when particles are being repelled (occasionally)
+        if (particleAffected && frameCount % 120 == 0) {  // Every 2 seconds
+            NSLog(@"Particle %d being repelled with force magnitude: %.3f", i, simd_length(repulsionForce));
+        }
+        
         // Add some natural drift and variation to velocity
         // Each particle gets slightly different random influences
         float drift_strength = 0.15f;
@@ -314,6 +378,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         // Add some subtle orbital/circular motion around the center
         simd_float3 center_pull = -_particle_positions[i] * 0.0001f;  // Gentle pull toward origin
         _particle_velocities[i] = _particle_velocities[i] + center_pull;
+        
+        // === APPLY REPULSION TO VELOCITY ===
+        // Add the calculated repulsion force to the particle's velocity
+        _particle_velocities[i] += repulsionForce;
         
         // Update position with the dynamic velocity
         _particle_positions[i] = _particle_positions[i] + _particle_velocities[i] * timestep;

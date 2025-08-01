@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>ImmersiveMetal</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	
+	<!-- CRITICAL: visionOS Privacy Usage Descriptions -->
+	<!-- These are REQUIRED for CompositorServices apps -->
+	<key>NSWorldSensingUsageDescription</key>
+	<string>This app uses world sensing to create immersive 3D experiences and accurately place virtual objects in your environment.</string>
+	
+	<key>NSHandsTrackingUsageDescription</key>
+	<string>This app tracks your hands to provide natural interaction with 3D content in the immersive experience.</string>
+	
+	<key>NSAccessoryTrackingUsageDescription</key>
+	<string>This app tracks accessories to enhance your immersive experience with additional input methods.</string>
+	
+	<key>NSMainCameraUsageDescription</key>
+	<string>This app uses the main camera to understand your environment and create realistic mixed reality experiences.</string>
+	
+	<!-- visionOS Required Device Capabilities -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>visionos</string>
+		<string>metal</string>
+	</array>
+	
+	<!-- Scene Configuration for visionOS Multi-Window Support -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	
+	<!-- Default Scene Session Role -->
+	<key>UIApplicationPreferredDefaultSceneSessionRole</key>
+	<string>UIWindowSceneSessionRoleApplication</string>
+	
+	<!-- Support for immersive experiences -->
+	<key>UISupportsDocumentBrowser</key>
+	<false/>
+</dict>
+</plist>

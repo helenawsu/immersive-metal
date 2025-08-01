@@ -17,6 +17,7 @@ public:
     SpatialRenderer(cp_layer_renderer_t layerRenderer, SRConfiguration *configuration);
 
     void drawAndPresent(cp_frame_t frame, cp_drawable_t drawable);
+    void updateHandPositions(const std::vector<simd_float3>& handPositions);
 
 private:
     void makeResources();
@@ -42,6 +43,9 @@ private:
     // === PARTICLE SYSTEM ===
     std::vector<simd_float3> _particle_positions;  // Current positions of all particles
     std::vector<simd_float3> _particle_velocities; // Velocities for particle movement
+    
+    // === HAND TRACKING ===
+    std::vector<simd_float3> _handPositions;       // Current hand positions for repulsion
     
     std::unique_ptr<SpatialEnvironmentMesh> _environmentMesh;
     SRConfiguration *_configuration;

@@ -10,6 +10,7 @@
 		5D5627962E3BD9FA004A3666 /* repo in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627952E3BD9FA004A3666 /* repo */; };
 		5D5627982E3D3FE2004A3666 /* neon.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627972E3D3FE2004A3666 /* neon.jpg */; };
 		5D56279A2E3D7C0A004A3666 /* iridescent.jpg in Resources */ = {isa = PBXBuildFile; fileRef = 5D5627992E3D7C09004A3666 /* iridescent.jpg */; };
+		5D56279C2E3D8415004A3666 /* HandTrackingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D56279B2E3D8415004A3666 /* HandTrackingManager.swift */; };
 		830175B22A44AC87008CAD8B /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830175B12A44AC87008CAD8B /* App.swift */; };
 		830175B42A44AC87008CAD8B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830175B32A44AC87008CAD8B /* ContentView.swift */; };
 		830175BA2A44AC87008CAD8B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 830175B92A44AC87008CAD8B /* Assets.xcassets */; };
@@ -32,6 +33,8 @@
 		5D5627952E3BD9FA004A3666 /* repo */ = {isa = PBXFileReference; lastKnownFileType = text; path = repo; sourceTree = "<group>"; };
 		5D5627972E3D3FE2004A3666 /* neon.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = neon.jpg; sourceTree = "<group>"; };
 		5D5627992E3D7C09004A3666 /* iridescent.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = iridescent.jpg; sourceTree = "<group>"; };
+		5D56279B2E3D8415004A3666 /* HandTrackingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandTrackingManager.swift; sourceTree = "<group>"; };
+		5D5627A42E3D8970004A3666 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		830175AA2A44AC87008CAD8B /* ImmersiveMetal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ImmersiveMetal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		830175B12A44AC87008CAD8B /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		830175B32A44AC87008CAD8B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -79,6 +82,7 @@
 				830175AC2A44AC87008CAD8B /* ImmersiveMetal */,
 				830175AB2A44AC87008CAD8B /* Products */,
 				830175C72A44BE8C008CAD8B /* Frameworks */,
+				5D5627A42E3D8970004A3666 /* Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -111,6 +115,7 @@
 				8394CE872A44DB1D005A8B04 /* studio.hdr */,
 				830175B92A44AC87008CAD8B /* Assets.xcassets */,
 				5D5627952E3BD9FA004A3666 /* repo */,
+				5D56279B2E3D8415004A3666 /* HandTrackingManager.swift */,
 			);
 			path = ImmersiveMetal;
 			sourceTree = "<group>";
@@ -158,7 +163,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					830175A92A44AC87008CAD8B = {
 						CreatedOnToolsVersion = 15.0;
@@ -210,6 +215,7 @@
 				8394CE8A2A44DD41005A8B04 /* EnvironmentShaders.metal in Sources */,
 				830175B42A44AC87008CAD8B /* ContentView.swift in Sources */,
 				830175C62A44ACB4008CAD8B /* SpatialRenderingEngine.mm in Sources */,
+				5D56279C2E3D8415004A3666 /* HandTrackingManager.swift in Sources */,
 				830175B22A44AC87008CAD8B /* App.swift in Sources */,
 				8394CE8F2A44E3CA005A8B04 /* Mesh.mm in Sources */,
 			);
@@ -253,6 +259,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 227LLB6D2K;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -275,6 +282,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				XROS_DEPLOYMENT_TARGET = 1.0;
@@ -316,6 +324,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 227LLB6D2K;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -331,6 +340,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 				XROS_DEPLOYMENT_TARGET = 1.0;
@@ -345,9 +355,9 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 227LLB6D2K;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Immersive Metal";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to get pose estimates for immersive AR experiences";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -364,6 +374,7 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Debug;
 		};
@@ -375,9 +386,9 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 227LLB6D2K;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Immersive Metal";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to get pose estimates for immersive AR experiences";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -393,6 +404,7 @@
 				SWIFT_OBJC_BRIDGING_HEADER = ImmersiveMetal/Bridging.h;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Release;
 		};
