@@ -20,7 +20,7 @@ static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box place
 
 // === HAND REPULSION SETTINGS ===
 static const float REPULSION_RADIUS = 0.3f;    // Radius around hands that affects particles (30cm)
-static const float REPULSION_STRENGTH = 2.0f;  // How strong the repulsion force is
+static const float REPULSION_STRENGTH = 5.0f;  // How strong the repulsion force is
 
 // Helper function to create translation matrix
 static simd_float4x4 simd_matrix4x4_translation(simd_float3 translation) {
@@ -100,18 +100,7 @@ void SpatialRenderer::makeResources() {
     // Create CPU array to hold transform matrices for each instance
     _instanceTransforms.resize(NUM_INSTANCES);
     
-    // Set up positions in a grid pattern
-    for (int i = 0; i < NUM_INSTANCES; ++i) {
-        // Arrange boxes in a grid (you can modify this logic as needed)
-        int row = i / 3;  // 3 boxes per row instead of 4 to fit better in FOV
-        int col = i % 3;
-        
-        float x = -2.0f + (col * 1.5f);  // Reduced spacing and range to fit better in FOV
-        float y = 1.25f - (row * 1.0f);  // Each row 1 meter lower
-        float z = -2.5f;  // Moved further back to prevent near-plane clipping
-        
-        _instanceTransforms[i] = simd_matrix4x4_translation(simd_make_float3(x, y, z));
-    }
+
     // === PARTICLE SYSTEM INITIALIZATION ===
     // Initialize particle positions and velocities as member variables
     _particle_positions.clear();
@@ -124,9 +113,9 @@ void SpatialRenderer::makeResources() {
 
     
     for (int i = 0; i < NUM_INSTANCES; ++i) {
-        float x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
-        float y = 0.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;        // Random between 0 and 1
-        float z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+        float x = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -1 and 1
+        float y = 0.5 + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;        // Random between 0 and 1
+        float z = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -1 and 1
         _particle_positions.push_back(simd_make_float3(x, y, z));
         x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
         y = (-1.0f + (static_cast<float>(rand()) / RAND_MAX)) * 2.0f;
@@ -261,6 +250,14 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     _sceneTime += timestep;
     _lastRenderTime = renderTime;
 
+    // === GET HEAD POSITION ===
+    // Extract the head position for particle center attraction
+    ar_device_anchor_t anchor = cp_drawable_get_device_anchor(drawable);
+    simd_float4x4 poseTransform = ar_anchor_get_origin_from_anchor_transform(anchor);
+    simd_float3 headPosition = simd_make_float3(poseTransform.columns[3].x, 
+                                                poseTransform.columns[3].y, 
+                                                poseTransform.columns[3].z);
+
     // Get the current rendering layout configuration
     cp_layer_renderer_configuration_t layerConfiguration = cp_layer_renderer_get_configuration(_layerRenderer);
     cp_layer_renderer_layout layout = cp_layer_renderer_configuration_get_layout(layerConfiguration);
@@ -375,8 +372,8 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         float damping = 0.98f;
         _particle_velocities[i] = _particle_velocities[i] * damping + drift;
         
-        // Add some subtle orbital/circular motion around the center
-        simd_float3 center_pull = -_particle_positions[i] * 0.0001f;  // Gentle pull toward origin
+        // Add some subtle orbital/circular motion around the head position
+        simd_float3 center_pull = (headPosition - _particle_positions[i]) * 0.001f;  // Gentle pull toward head
         _particle_velocities[i] = _particle_velocities[i] + center_pull;
         
         // === APPLY REPULSION TO VELOCITY ===
