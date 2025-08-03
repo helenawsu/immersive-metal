@@ -129,3 +129,121 @@ half4 fragment_main(FragmentIn in [[stage_in]],
     
     return color;
 }
+
+// === GPU PARTICLE PHYSICS COMPUTE SHADER ===
+// Handles particle movement, hand repulsion, and orbital motion on the GPU
+// Each thread processes one particle in parallel
+
+struct ParticleConstants {
+    float3 headPosition;        // Current head position for orbital attraction
+    uint handCount;             // Number of active hands
+    float deltaTime;            // Frame time delta for smooth animation
+    float repulsionRadius;      // Radius around hands that affects particles
+    float repulsionStrength;    // How strong the repulsion force is
+    float driftStrength;        // Random drift force strength
+    float damping;              // Velocity damping factor
+    float centerPullStrength;   // Attraction to head position
+    float boundary;             // Boundary for particle containment
+};
+
+[[kernel]]
+void updateParticles(device float3 *positions [[buffer(0)]],
+                     device float3 *velocities [[buffer(1)]],
+                     constant float3 *handPositions [[buffer(2)]],
+                     constant ParticleConstants &constants [[buffer(3)]],
+                     uint index [[thread_position_in_grid]]) 
+{
+    // Bounds check - important for GPU safety
+    if (index >= 50000) return;  // Assuming NUM_INSTANCES = 50000
+    
+    // Get current particle data
+    float3 position = positions[index];
+    float3 velocity = velocities[index];
+    
+    // === HAND REPULSION FORCES ===
+    float3 repulsionForce = float3(0.0f);
+    
+    for (uint handIndex = 0; handIndex < constants.handCount; ++handIndex) {
+        float3 handToParticle = position - handPositions[handIndex];
+        float distance = length(handToParticle);
+        
+        // Apply repulsion if particle is within repulsion radius
+        if (distance < constants.repulsionRadius && distance > 0.001f) {
+            // Normalize direction vector
+            float3 direction = handToParticle / distance;
+            
+            // Calculate falloff: stronger force when closer to hand
+            float falloff = 1.0f - (distance / constants.repulsionRadius);
+            falloff = falloff * falloff;  // Square for more dramatic effect
+            
+            // Apply repulsion force
+            repulsionForce += direction * constants.repulsionStrength * falloff;
+        }
+    }
+    
+    // === IMPROVED RANDOM DRIFT ===
+    // Use better hash function for particle index + time
+    uint seed = index * 747796405u + 2891336453u;
+    uint time_seed = uint(constants.deltaTime * 1000000.0f); // Use frame time as extra randomness
+    seed ^= time_seed;
+    
+    // Generate three different random values
+    float3 drift;
+    
+    // First random value
+    seed = seed * 747796405u + 2891336453u;
+    seed = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    drift.x = (float(seed & 0xFFFFu) / 65535.0f - 0.5f) * constants.driftStrength;
+    
+    // Second random value
+    seed = seed * 747796405u + 2891336453u;
+    seed = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    drift.y = (float(seed & 0xFFFFu) / 65535.0f - 0.5f) * constants.driftStrength;
+    
+    // Third random value
+    seed = seed * 747796405u + 2891336453u;
+    seed = ((seed >> ((seed >> 28u) + 4u)) ^ seed) * 277803737u;
+    drift.z = (float(seed & 0xFFFFu) / 65535.0f - 0.5f) * constants.driftStrength;
+    
+    // === APPLY PHYSICS ===
+    // Apply gentle damping to prevent runaway velocities
+    velocity = velocity * constants.damping + drift;
+    
+    // Add stronger orbital motion around head position (matching CPU version)
+    float3 toCenter = constants.headPosition - position;
+    float distanceToHead = length(toCenter);
+    
+    // Stronger center pull that increases with distance from head (like CPU version)
+    if (distanceToHead > 0.001f) {  // Avoid division by zero
+        float3 centerDirection = toCenter / distanceToHead;
+        // Pull gets stronger the farther away particles are (distance-scaled)
+        float pullForce = constants.centerPullStrength * distanceToHead;
+        velocity += centerDirection * pullForce;
+    }
+    
+    // Add repulsion forces
+    velocity += repulsionForce;
+    
+    // Update position with proper timestep
+    position += velocity * constants.deltaTime;
+    
+    // === BOUNDARY CONSTRAINTS ===
+    // Bounce off invisible walls to keep particles in view
+    if (position.x > constants.boundary || position.x < -constants.boundary) {
+        velocity.x *= -0.8f;  // Reverse and dampen
+        // Clamp position within bounds to prevent escape
+        position.x = clamp(position.x, -constants.boundary, constants.boundary);
+    }
+    if (position.y > constants.boundary || position.y < -constants.boundary) {
+        velocity.y *= -0.8f;
+        position.y = clamp(position.y, -constants.boundary, constants.boundary);
+    }
+    if (position.z > constants.boundary || position.z < -constants.boundary) {
+        velocity.z *= -0.8f;
+        position.z = clamp(position.z, -constants.boundary, constants.boundary);
+    }
+    
+    // Write back updated values
+    positions[index] = position;
+    velocities[index] = velocity;
+}

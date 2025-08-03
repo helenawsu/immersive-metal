@@ -101,35 +101,26 @@ void SpatialRenderer::makeResources() {
     _instanceTransforms.resize(NUM_INSTANCES);
     
 
-    // === GPU PARTICLE SYSTEM INITIALIZATION ===
-    // Create GPU buffers for particle data - much more efficient than CPU vectors
-    _particlePositionsBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES 
-                                                     options:MTLResourceStorageModeShared];
-    _particleVelocitiesBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES 
-                                                      options:MTLResourceStorageModeShared];
-    _particleConstantsBuffer = [_device newBufferWithLength:sizeof(ParticleConstants) 
-                                                    options:MTLResourceStorageModeShared];
-    
-    // Initialize particle positions and velocities directly in GPU buffers
-    simd_float3 *positions = (simd_float3 *)[_particlePositionsBuffer contents];
-    simd_float3 *velocities = (simd_float3 *)[_particleVelocitiesBuffer contents];
+    // === PARTICLE SYSTEM INITIALIZATION ===
+    // Initialize particle positions and velocities as member variables
+    _particle_positions.clear();
+    _particle_velocities.clear();
+    _particle_positions.reserve(NUM_INSTANCES);
+    _particle_velocities.reserve(NUM_INSTANCES);
     
     // === HAND TRACKING INITIALIZATION ===
     _handPositions.clear();  // Start with no hands detected
-    // Create buffer for up to 2 hands (left + right)
-    _handPositionsBuffer = [_device newBufferWithLength:sizeof(simd_float3) * 2 
-                                                 options:MTLResourceStorageModeShared];
+
     
     for (int i = 0; i < NUM_INSTANCES; ++i) {
-        float x = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -0.5 and 0.5
-        float y = 0.5 + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;    // Random between 0.5 and 1.5
-        float z = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -0.5 and 0.5
-        positions[i] = simd_make_float3(x, y, z);
-        
+        float x = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -1 and 1
+        float y = 0.5 + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;        // Random between 0 and 1
+        float z = -0.5f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;  // Random between -1 and 1
+        _particle_positions.push_back(simd_make_float3(x, y, z));
         x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
         y = (-1.0f + (static_cast<float>(rand()) / RAND_MAX)) * 2.0f;
         z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
-        velocities[i] = simd_make_float3(x, y, z);
+        _particle_velocities.push_back(simd_make_float3(x, y, z));
     }
 
     
@@ -249,18 +240,6 @@ void SpatialRenderer::makeRenderPipelines() {
     depthDescriptor.depthWriteEnabled = YES;
     depthDescriptor.depthCompareFunction = MTLCompareFunctionGreater;  // Same as content for consistency
     _backgroundDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
-    
-    // === PARTICLE COMPUTE PIPELINE ===
-    // Create compute pipeline for GPU particle physics
-    id<MTLFunction> particleComputeFunction = [library newFunctionWithName:@"updateParticles"];
-    if (particleComputeFunction != nil) {
-        _particleComputePipelineState = [_device newComputePipelineStateWithFunction:particleComputeFunction error:&error];
-        if (_particleComputePipelineState == nil) {
-            NSLog(@"Error creating particle compute pipeline: %@", error);
-        }
-    } else {
-        NSLog(@"Error: Could not find updateParticles compute function in shader library");
-    }
 }
 
 void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
@@ -283,70 +262,38 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     cp_layer_renderer_configuration_t layerConfiguration = cp_layer_renderer_get_configuration(_layerRenderer);
     cp_layer_renderer_layout layout = cp_layer_renderer_configuration_get_layout(layerConfiguration);
 
-    // === GPU COMMAND BUFFER CREATION ===
-    // Create a command buffer to batch all our rendering commands
-    // This gets submitted to the GPU as a single unit of work
-    id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
-
-    // === GPU PARTICLE PHYSICS COMPUTE ===
-    // Replace CPU loop with GPU compute shader for massive parallelization
-    
-    // Update hand positions in GPU buffer
-    if (!_handPositions.empty()) {
-        simd_float3 *gpuHandPositions = (simd_float3 *)[_handPositionsBuffer contents];
-        for (size_t i = 0; i < std::min(_handPositions.size(), size_t(2)); ++i) {
-            gpuHandPositions[i] = _handPositions[i];
-        }
-    }
-    
-    // Prepare particle physics constants
-    ParticleConstants *constants = (ParticleConstants *)[_particleConstantsBuffer contents];
-    constants->headPosition = headPosition;
-    constants->handCount = static_cast<uint32_t>(_handPositions.size());
-    constants->deltaTime = timestep;
-    constants->repulsionRadius = REPULSION_RADIUS;
-    constants->repulsionStrength = REPULSION_STRENGTH;
-    constants->driftStrength = 0.15f;
-    constants->damping = 0.98f;
-    constants->centerPullStrength = 0.1f;
-    constants->boundary = 3.0f;
-    
-    // Create compute command encoder for particle physics
-    id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
-    [computeEncoder setComputePipelineState:_particleComputePipelineState];
-    
-    // Bind GPU buffers to compute shader
-    [computeEncoder setBuffer:_particlePositionsBuffer offset:0 atIndex:0];
-    [computeEncoder setBuffer:_particleVelocitiesBuffer offset:0 atIndex:1];
-    [computeEncoder setBuffer:_handPositionsBuffer offset:0 atIndex:2];
-    [computeEncoder setBuffer:_particleConstantsBuffer offset:0 atIndex:3];
-    
-    // Calculate optimal thread group size for GPU
-    NSUInteger threadsPerGroup = _particleComputePipelineState.maxTotalThreadsPerThreadgroup;
-    threadsPerGroup = std::min(threadsPerGroup, NSUInteger(256)); // Cap at 256 for better occupancy
-    
-    MTLSize threadsPerThreadgroup = MTLSizeMake(threadsPerGroup, 1, 1);
-    MTLSize threadgroupsPerGrid = MTLSizeMake((NUM_INSTANCES + threadsPerGroup - 1) / threadsPerGroup, 1, 1);
-    
-    // Dispatch GPU compute - processes ALL particles in parallel!
-    [computeEncoder dispatchThreadgroups:threadgroupsPerGrid threadsPerThreadgroup:threadsPerThreadgroup];
-    [computeEncoder endEncoding];
-    
-    // === MEMORY SYNCHRONIZATION FOR VISIONOS ===
-    // On visionOS, we need to ensure compute shader completes before vertex shader reads the data
-    // We'll commit this command buffer and wait, then create a new one for rendering
-    [commandBuffer commit];
-    [commandBuffer waitUntilCompleted];
-    
-    // Create new command buffer for rendering operations
-    commandBuffer = [_commandQueue commandBuffer];
-    
     // === 3D OBJECT ANIMATION ===
-    // Update all instance transforms with different rotations using GPU-computed positions
-    // Read back updated positions AFTER GPU compute completion
-    simd_float3 *updatedPositions = (simd_float3 *)[_particlePositionsBuffer contents];
-    
+    // Update all instance transforms with different rotations
+#if TARGET_OS_SIMULATOR
+    const float estimatedHeadHeight = 0.0;  // Simulator doesn't need head height adjustment
+#else
+    const float estimatedHeadHeight = 1.25;  // ~4 feet - comfortable standing height
+#endif
+    // Generate random particle positions for all instances
+    // Update each instance transform with rotation + position
     for (int i = 0; i < NUM_INSTANCES; ++i) {
+        float angle, x, y, z;
+        
+//        if (CIRCULAR_PLACEMENT) {
+//            // === CIRCULAR 360° PLACEMENT ===
+//            // Place boxes in a circle around the user for full 360° experience
+//            float angleStep = (2.0f * M_PI) / NUM_INSTANCES;
+//            angle = i * angleStep;
+//            float radius = 1.0f;  // 1.5 meters from center - closer to avoid wall collisions
+//            
+//            x = radius * cos(angle);
+//            y = estimatedHeadHeight;  // Raise boxes 0.5m higher to avoid floor occlusion
+//            z = radius * sin(angle);
+//        } else {
+//            // random placement
+//
+//            
+//            // Generate random positions
+//            x = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+//            y = (static_cast<float>(rand()) / RAND_MAX) * estimatedHeadHeight;  // Random between 0 and estimatedHeadHeight
+//            z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
+//        }
+        
         // Each box rotates at different speeds (much slower now)
         float rotationSpeed = 0.1f + (i * 0.01f);  // Reduced from 0.5f and 0.3f
         float rotationAngle = _sceneTime * rotationSpeed;
@@ -361,11 +308,102 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             simd_make_float4(0.0f, 0.0f, 0.0f, 1.0f)
         );
         
-        // Combine rotation with GPU-computed position
+        // Combine rotation with position
         _instanceTransforms[i] = simd_mul(
-            simd_matrix4x4_translation(updatedPositions[i]),  // Use GPU-computed position
+            simd_matrix4x4_translation(_particle_positions[i]),
             rotation
         );
+    }
+    
+    // === HAND TRACKING AND REPULSION SYSTEM ===
+    // Apply repulsion forces from detected hands to create interactive particle effects
+    std::vector<simd_float3> handPositions = _handPositions;  // Copy for thread safety
+    
+    // Debug: Show when hands are being processed
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount % 60 == 0 && !handPositions.empty()) {  // Log every 60 frames (once per second at 60fps)
+        NSLog(@"Processing %zu hands for repulsion", handPositions.size());
+    }
+    
+    //update next position for particles with dynamic drift
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        // === HAND REPULSION FORCES ===
+        // Calculate repulsion from all detected hands
+        simd_float3 repulsionForce = simd_make_float3(0.0f, 0.0f, 0.0f);
+        bool particleAffected = false;  // Track if this particle is being repelled
+        
+        for (const auto& handPos : handPositions) {
+            // Calculate vector from hand to particle
+            simd_float3 handToParticle = _particle_positions[i] - handPos;
+            float distance = simd_length(handToParticle);
+            
+            // Apply repulsion if particle is within repulsion radius
+            if (distance < REPULSION_RADIUS && distance > 0.001f) {  // Avoid division by zero
+                // Normalize direction vector
+                simd_float3 direction = handToParticle / distance;
+                
+                // Calculate falloff: stronger force when closer to hand
+                // Uses inverse square law with minimum distance to prevent infinite forces
+                float falloff = 1.0f - (distance / REPULSION_RADIUS);  // Linear falloff
+                falloff = falloff * falloff;  // Square for more dramatic effect
+                
+                // Apply repulsion force
+                repulsionForce += direction * REPULSION_STRENGTH * falloff;
+                particleAffected = true;
+            }
+        }
+        
+        // Debug: Show when particles are being repelled (occasionally)
+        if (particleAffected && frameCount % 120 == 0) {  // Every 2 seconds
+            NSLog(@"Particle %d being repelled with force magnitude: %.3f", i, simd_length(repulsionForce));
+        }
+        
+        // Add some natural drift and variation to velocity
+        // Each particle gets slightly different random influences
+        float drift_strength = 0.15f;
+        simd_float3 drift = simd_make_float3(
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength,
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength,
+            (static_cast<float>(rand()) / RAND_MAX - 0.5f) * drift_strength
+        );
+        
+        // Apply gentle damping to prevent runaway velocities
+        float damping = 0.98f;
+        _particle_velocities[i] = _particle_velocities[i] * damping + drift;
+        
+        // Add stronger orbital/circular motion around the head position
+        simd_float3 toCenter = headPosition - _particle_positions[i];
+        float distanceToHead = simd_length(toCenter);
+        
+        // Stronger center pull that increases with distance from head
+        float centerPullStrength = 0.5f; // Increased from 0.001f
+        if (distanceToHead > 0.001f) {  // Avoid division by zero
+            simd_float3 centerDirection = toCenter / distanceToHead;
+            // Pull gets stronger the farther away particles are
+            float pullForce = centerPullStrength * distanceToHead;
+            _particle_velocities[i] += centerDirection * pullForce;
+        }
+        
+        // === APPLY REPULSION TO VELOCITY ===
+        // Add the calculated repulsion force to the particle's velocity
+        _particle_velocities[i] += repulsionForce;
+        
+        // Update position with the dynamic velocity
+        _particle_positions[i] = _particle_positions[i] + _particle_velocities[i] * timestep;
+        
+        // Optional: Add boundary constraints to keep particles in view
+        // Bounce off invisible walls to keep particles from drifting too far
+        const float boundary = 3.0f;
+        if (_particle_positions[i].x > boundary || _particle_positions[i].x < -boundary) {
+            _particle_velocities[i].x *= -0.8f;  // Reverse and dampen
+        }
+        if (_particle_positions[i].y > boundary || _particle_positions[i].y < -boundary) {
+            _particle_velocities[i].y *= -0.8f;
+        }
+        if (_particle_positions[i].z > boundary || _particle_positions[i].z < -boundary) {
+            _particle_velocities[i].z *= -0.8f;
+        }
     }
     
     // Copy the updated transforms to the GPU buffer
@@ -385,6 +423,11 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         // Set to 180 degrees to show the full hemisphere (no edge clipping)
         _environmentMesh->setCutoffAngle(180);
     }
+
+    // === GPU COMMAND BUFFER CREATION ===
+    // Create a command buffer to batch all our rendering commands
+    // This gets submitted to the GPU as a single unit of work
+    id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
 
     // === STEREOSCOPIC VIEW SETUP ===
     // Vision Pro renders to both eyes simultaneously for 3D depth perception

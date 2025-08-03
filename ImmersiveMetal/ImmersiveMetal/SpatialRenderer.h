@@ -32,17 +32,23 @@ private:
     id<MTLRenderPipelineState> _contentRenderPipelineState;
     id<MTLDepthStencilState> _contentDepthStencilState;
     id<MTLDepthStencilState> _backgroundDepthStencilState;
+    
+    // === COMPUTE SHADER PIPELINE FOR PARTICLE PHYSICS ===
+    id<MTLComputePipelineState> _particleComputePipelineState;
+    
     cp_layer_renderer_t _layerRenderer;
     
     // === SIMPLE INSTANCED RENDERING ===
-    // Single mesh rendered 3 times with different transforms
+    // Single mesh rendered multiple times with different transforms
     std::unique_ptr<TexturedMesh> _boxMesh;        // ONE mesh for all instances
-    id<MTLBuffer> _instanceBuffer;                 // GPU buffer with 3 transform matrices
-    std::vector<simd_float4x4> _instanceTransforms; // CPU array with 3 transforms
+    id<MTLBuffer> _instanceBuffer;                 // GPU buffer with transform matrices
+    std::vector<simd_float4x4> _instanceTransforms; // CPU array with transforms
     
-    // === PARTICLE SYSTEM ===
-    std::vector<simd_float3> _particle_positions;  // Current positions of all particles
-    std::vector<simd_float3> _particle_velocities; // Velocities for particle movement
+    // === GPU PARTICLE SYSTEM ===
+    id<MTLBuffer> _particlePositionsBuffer;        // GPU buffer for particle positions
+    id<MTLBuffer> _particleVelocitiesBuffer;       // GPU buffer for particle velocities  
+    id<MTLBuffer> _handPositionsBuffer;            // GPU buffer for hand positions
+    id<MTLBuffer> _particleConstantsBuffer;        // GPU buffer for physics constants
     
     // === HAND TRACKING ===
     std::vector<simd_float3> _handPositions;       // Current hand positions for repulsion
