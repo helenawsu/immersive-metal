@@ -308,7 +308,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     constants->repulsionStrength = REPULSION_STRENGTH;
     constants->driftStrength = 0.15f;
     constants->damping = 0.98f;
-    constants->centerPullStrength = 0.1f;
+    constants->centerPullStrength = 0.01f;
     constants->boundary = 3.0f;
     
     // Create compute command encoder for particle physics
@@ -320,6 +320,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     [computeEncoder setBuffer:_particleVelocitiesBuffer offset:0 atIndex:1];
     [computeEncoder setBuffer:_handPositionsBuffer offset:0 atIndex:2];
     [computeEncoder setBuffer:_particleConstantsBuffer offset:0 atIndex:3];
+    [computeEncoder setBuffer:_instanceBuffer offset:0 atIndex:4];  // Add instance transforms buffer
     
     // Calculate optimal thread group size for GPU
     NSUInteger threadsPerGroup = _particleComputePipelineState.maxTotalThreadsPerThreadgroup;
@@ -332,47 +333,16 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     [computeEncoder dispatchThreadgroups:threadgroupsPerGrid threadsPerThreadgroup:threadsPerThreadgroup];
     [computeEncoder endEncoding];
     
-    // === MEMORY SYNCHRONIZATION FOR VISIONOS ===
-    // On visionOS, we need to ensure compute shader completes before vertex shader reads the data
-    // We'll commit this command buffer and wait, then create a new one for rendering
-    [commandBuffer commit];
-    [commandBuffer waitUntilCompleted];
+    // === EXPLICIT GPU SYNCHRONIZATION ===
+    // Add memory barrier to ensure compute writes are visible to vertex shader
+    // This is more explicit and can help with debugging/profiling
+    id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+    [blitEncoder endEncoding];  // Empty blit encoder acts as memory barrier
     
-    // Create new command buffer for rendering operations
-    commandBuffer = [_commandQueue commandBuffer];
-    
-    // === 3D OBJECT ANIMATION ===
-    // Update all instance transforms with different rotations using GPU-computed positions
-    // Read back updated positions AFTER GPU compute completion
-    simd_float3 *updatedPositions = (simd_float3 *)[_particlePositionsBuffer contents];
-    
-    for (int i = 0; i < NUM_INSTANCES; ++i) {
-        // Each box rotates at different speeds (much slower now)
-        float rotationSpeed = 0.1f + (i * 0.01f);  // Reduced from 0.5f and 0.3f
-        float rotationAngle = _sceneTime * rotationSpeed;
-        float c = cos(rotationAngle);
-        float s = sin(rotationAngle);
-        
-        // Create rotation matrix around Y-axis
-        simd_float4x4 rotation = simd_matrix(
-            simd_make_float4(   c, 0.0f,   -s, 0.0f),
-            simd_make_float4(0.0f, 1.0f, 0.0f, 0.0f),
-            simd_make_float4(   s, 0.0f,    c, 0.0f),
-            simd_make_float4(0.0f, 0.0f, 0.0f, 1.0f)
-        );
-        
-        // Combine rotation with GPU-computed position
-        _instanceTransforms[i] = simd_mul(
-            simd_matrix4x4_translation(updatedPositions[i]),  // Use GPU-computed position
-            rotation
-        );
-    }
-    
-    // Copy the updated transforms to the GPU buffer
-    // This is the key efficiency: single memory copy for all instances
-    memcpy([_instanceBuffer contents], 
-           _instanceTransforms.data(), 
-           sizeof(simd_float4x4) * NUM_INSTANCES);
+    // === GPU PARTICLE PHYSICS AND TRANSFORM GENERATION COMPLETE ===
+    // GPU computes both particle physics AND generates transform matrices
+    // Memory barrier ensures vertex shader sees the updated transforms
+    // No CPU-GPU roundtrip needed!
 
     // === MIXED REALITY PORTAL CONFIGURATION ===
     // Configure environment visibility based on immersion mode

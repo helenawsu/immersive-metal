@@ -151,6 +151,7 @@ void updateParticles(device float3 *positions [[buffer(0)]],
                      device float3 *velocities [[buffer(1)]],
                      constant float3 *handPositions [[buffer(2)]],
                      constant ParticleConstants &constants [[buffer(3)]],
+                     device float4x4 *instanceTransforms [[buffer(4)]],  // NEW: Instance transforms output
                      uint index [[thread_position_in_grid]]) 
 {
     // Bounds check - important for GPU safety
@@ -242,6 +243,16 @@ void updateParticles(device float3 *positions [[buffer(0)]],
         velocity.z *= -0.8f;
         position.z = clamp(position.z, -constants.boundary, constants.boundary);
     }
+    
+    // === GENERATE TRANSFORMATION MATRIX ON GPU ===
+    // Create translation matrix directly from updated position
+    // This eliminates the CPU->GPU roundtrip completely!
+    instanceTransforms[index] = float4x4(
+        float4(1.0, 0.0, 0.0, 0.0),        // First column: X-axis (identity)
+        float4(0.0, 1.0, 0.0, 0.0),        // Second column: Y-axis (identity)
+        float4(0.0, 0.0, 1.0, 0.0),        // Third column: Z-axis (identity)
+        float4(position, 1.0)              // Fourth column: Translation (W=1)
+    );
     
     // Write back updated values
     positions[index] = position;
