@@ -96,16 +96,6 @@ void SpatialRenderer::makeResources() {
     // Create the single mesh object that all instances will share
     _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"iridescent.jpg", _device);
     
-    // Create a LARGER box mesh specifically for glow effect
-    MDLMesh *glowBoxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.1, 0.1, 0.1)
-                                                segments:simd_make_uint3(1, 1, 1)
-                                            geometryType:MDLGeometryTypeTriangles
-                                           inwardNormals:NO
-                                               allocator:bufferAllocator];
-    
-    // Create the glow mesh object (20x larger than particles)
-    _glowMesh = std::make_unique<TexturedMesh>(glowBoxMesh, @"iridescent.jpg", _device);
-    
     // === INSTANCE DATA SETUP ===
     // Create CPU array to hold transform matrices for each instance
     _instanceTransforms.resize(NUM_INSTANCES);
@@ -147,18 +137,6 @@ void SpatialRenderer::makeResources() {
     // This buffer gets updated each frame and sent to the vertex shader
     _instanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * NUM_INSTANCES 
                                             options:MTLResourceStorageModeShared];
-
-    // === GLOW EFFECT CONSTANTS BUFFER ===
-    // Create GPU buffer for glow effect parameters
-    _glowConstantsBuffer = [_device newBufferWithLength:sizeof(GlowConstants)
-                                                options:MTLResourceStorageModeShared];
-    
-    // Initialize glow constants with default values
-    GlowConstants *glowConstants = (GlowConstants *)[_glowConstantsBuffer contents];
-    glowConstants->glowScale = 5.0f;                                    // Scale glow 1.5x larger than particles
-    glowConstants->glowIntensity = 3.8f;                               // 80% intensity
-    glowConstants->glowColor = simd_make_float3(0.3f, 0.7f, 1.0f);    // Cyan-blue glow
-    glowConstants->glowFalloff = 1.5f;                                 // Quadratic falloff
 
     // === 360° ENVIRONMENT BACKGROUND ===
     // Create a large inverted sphere (3 meter radius) for the environment
@@ -276,54 +254,6 @@ void SpatialRenderer::makeRenderPipelines() {
             NSLog(@"Error occurred when creating render pipeline state: %@", error);
         }
     }
-    
-    {
-        // === GLOW EFFECT PIPELINE ===
-        // Creates additive glow effects using scaled geometry instances
-        
-        // Select appropriate glow shaders based on rendering mode
-        vertexFunction = [library newFunctionWithName: layoutIsDedicated ? @"vertex_dedicated_glow_main" : @"vertex_glow_main"
-                                       constantValues:functionConstants
-                                                error:&error];
-        fragmentFunction = [library newFunctionWithName:@"fragment_glow"];
-        
-        pipelineDescriptor.vertexFunction = vertexFunction;
-        pipelineDescriptor.fragmentFunction = fragmentFunction;
-        
-        // Use same vertex descriptor as content (both are box meshes)
-        pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
-        
-        // === ADDITIVE BLENDING SETUP ===
-        // Enable blending for glow effect accumulation
-        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
-        
-        // Additive blending: new_color = src_color * src_alpha + dst_color * 1
-        // This allows multiple glow effects to accumulate naturally
-        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-        
-        // Source: Use source alpha for intensity control
-        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-        
-        // Destination: Add to existing color (accumulate glow)
-        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
-        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
-        
-        if (!layoutIsDedicated) {
-            pipelineDescriptor.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
-            pipelineDescriptor.maxVertexAmplificationCount = 2;
-        }
-
-        // Create the glow pipeline state
-        _glowRenderPipelineState = [_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:&error];
-        if (_glowRenderPipelineState == nil) {
-            NSLog(@"Error occurred when creating glow render pipeline state: %@", error);
-        }
-        
-        // Reset blending state for subsequent pipelines
-        pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
-    }
 
     // === DEPTH-STENCIL STATES FOR 3D DEPTH TESTING ===
     
@@ -337,12 +267,6 @@ void SpatialRenderer::makeRenderPipelines() {
     depthDescriptor.depthWriteEnabled = YES;
     depthDescriptor.depthCompareFunction = MTLCompareFunctionGreater;  // Same as content for consistency
     _backgroundDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
-    
-    // === GLOW DEPTH STATE ===
-    // Glow effects render behind solid particles with depth testing but no depth writes
-    depthDescriptor.depthWriteEnabled = NO;   // Don't write to depth buffer (allows overlapping glow)
-    depthDescriptor.depthCompareFunction = MTLCompareFunctionLessEqual;  // Render behind or at same depth as particles
-    _glowDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
     
     // === PARTICLE COMPUTE PIPELINE ===
     // Create compute pipeline for GPU particle physics

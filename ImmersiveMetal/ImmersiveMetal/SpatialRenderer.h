@@ -30,10 +30,8 @@ private:
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _environmentRenderPipelineState;
     id<MTLRenderPipelineState> _contentRenderPipelineState;
-    id<MTLRenderPipelineState> _glowRenderPipelineState;        // NEW: Glow effect pipeline
     id<MTLDepthStencilState> _contentDepthStencilState;
     id<MTLDepthStencilState> _backgroundDepthStencilState;
-    id<MTLDepthStencilState> _glowDepthStencilState;            // NEW: Glow depth state
     
     // === COMPUTE SHADER PIPELINE FOR PARTICLE PHYSICS ===
     id<MTLComputePipelineState> _particleComputePipelineState;
@@ -43,16 +41,14 @@ private:
     // === SIMPLE INSTANCED RENDERING ===
     // Single mesh rendered multiple times with different transforms
     std::unique_ptr<TexturedMesh> _boxMesh;        // ONE mesh for all instances
-    std::unique_ptr<TexturedMesh> _glowMesh;       // LARGER mesh for glow effect
     id<MTLBuffer> _instanceBuffer;                 // GPU buffer with transform matrices
     std::vector<simd_float4x4> _instanceTransforms; // CPU array with transforms
     
     // === GPU PARTICLE SYSTEM ===
     id<MTLBuffer> _particlePositionsBuffer;        // GPU buffer for particle positions
-    id<MTLBuffer> _particleVelocitiesBuffer;       // GPU buffer for particle velocities  
+    id<MTLBuffer> _particleVelocitiesBuffer;       // GPU buffer for particle velocities
     id<MTLBuffer> _handPositionsBuffer;            // GPU buffer for hand positions
     id<MTLBuffer> _particleConstantsBuffer;        // GPU buffer for physics constants
-    id<MTLBuffer> _glowConstantsBuffer;            // NEW: GPU buffer for glow constants
     
     // === HAND TRACKING ===
     std::vector<simd_float3> _handPositions;       // Current hand positions for repulsion
