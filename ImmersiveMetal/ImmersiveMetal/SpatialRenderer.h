@@ -43,6 +43,7 @@ private:
     // === SIMPLE INSTANCED RENDERING ===
     // Single mesh rendered multiple times with different transforms
     std::unique_ptr<TexturedMesh> _boxMesh;        // ONE mesh for all instances
+    std::unique_ptr<TexturedMesh> _glowMesh;       // LARGER mesh for glow effect
     id<MTLBuffer> _instanceBuffer;                 // GPU buffer with transform matrices
     std::vector<simd_float4x4> _instanceTransforms; // CPU array with transforms
     

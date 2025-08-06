@@ -108,24 +108,32 @@ VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
     return out;
 }
 
-// === FRAGMENT SHADER: PIXEL COLOR CALCULATION ===
-// Runs once per pixel to determine final color output  
+// === FRAGMENT SHADER: PIXEL COLOR CALCULATION WITH RADIAL GLOW FALLOFF ===
+// Runs once per pixel to determine final color output
 [[fragment]]
 half4 fragment_main(FragmentIn in [[stage_in]],
                     texture2d<half, access::sample> texture [[texture(0)]])
 {
     // === TEXTURE SAMPLING ===
-    // Create a sampler that defines how to read the texture
-    // - normalized coordinates: UV coords are [0,1] instead of pixel coordinates  
-    // - linear filtering: smooth interpolation between pixels for better quality
-    // - no mip filtering: not using mip maps in this simple example
-    // - repeat addressing: UV coords outside [0,1] wrap around
     constexpr sampler environmentSampler(coord::normalized, filter::linear, mip_filter::none, address::repeat);
-    
-    // Sample the diffuse texture at the interpolated UV coordinates
-    // This reads the color from the texture and returns it as the final pixel color
-    // The texture coordinates were set up by the vertex shader and interpolated across the triangle
     half4 color = texture.sample(environmentSampler, in.texCoords);
+    
+    // === RADIAL GLOW FALLOFF ===
+    // Calculate distance from center of cube face (0.5, 0.5)
+    float2 centerOffset = in.texCoords - float2(0.5f, 0.5f);
+    float distanceFromCenter = length(centerOffset);
+    
+    // Create radial falloff from center to edges
+    // Distance of 0.0 = center = full intensity
+    // Distance of 0.5 = edge = zero intensity
+    float normalizedDistance = distanceFromCenter / 0.5f;
+    normalizedDistance = clamp(normalizedDistance, 0.0f, 1.0f);
+    
+    // Apply smooth falloff curve
+    float glowIntensity = pow(1.0f - normalizedDistance, 1.5f);
+    
+    // Apply the glow falloff to the alpha channel for transparency at edges
+    color.a *= glowIntensity;
     
     return color;
 }
@@ -133,15 +141,21 @@ half4 fragment_main(FragmentIn in [[stage_in]],
 // === GLOW EFFECT VERTEX SHADERS ===
 // Renders scaled versions of particle cubes for glow effect using same instance data
 
-// Glow constants for controlling glow appearance
+// Glow constants for controlling glow appearance - Enhanced for bloom approximation
 struct GlowConstants {
-    float glowScale;           // Scale factor for glow geometry (1.2 - 2.0)
+    float glowScale;           // Scale factor for glow geometry (3.0 - 8.0 for hybrid bloom)
     float glowIntensity;       // Overall glow brightness multiplier
     float3 glowColor;          // Glow color tint
-    float glowFalloff;         // Falloff exponent for radial gradient
+    float innerRadius;         // Inner glow radius (brightest core)
+    float middleRadius;        // Middle glow radius (medium intensity)
+    float outerRadius;         // Outer glow radius (faint outer glow)
+    float brightnessThreshold; // Minimum brightness for glow effect
+    float glowFalloff;         // Falloff exponent for glow intensity curve
+    float padding;             // Padding for alignment
 };
 
 // === GLOW VERTEX SHADER: LAYERED RENDERING ===
+// Scale the larger mesh even more to create visible glow extension
 [[vertex]]
 LayeredVertexOut vertex_glow_main(VertexIn in [[stage_in]],
                                   constant PoseConstants *poses [[buffer(1)]],
@@ -154,20 +168,16 @@ LayeredVertexOut vertex_glow_main(VertexIn in [[stage_in]],
     constant auto &pose = poses[amplificationID];
     constant auto &instanceMatrix = instanceMatrices[instanceID];
     
-    // Create scaled version of instance matrix for glow effect
-    float4x4 glowMatrix = instanceMatrix;
-    glowMatrix.columns[0].xyz *= glow.glowScale; // Scale X axis
-    glowMatrix.columns[1].xyz *= glow.glowScale; // Scale Y axis
-    glowMatrix.columns[2].xyz *= glow.glowScale; // Scale Z axis
-    // Translation (W component) remains unchanged - glow centered on particle
+    // Scale the larger mesh moderately to extend beyond particles
+    float4 scaledPosition = float4(in.position * glow.glowScale * 0.3f, 1.0f);
     
     LayeredVertexOut out;
     
-    // Standard MVP transformation with scaled matrix
-    out.position = pose.projectionMatrix * pose.viewMatrix * glowMatrix * float4(in.position, 1.0f);
+    // MVP transformation with additional scaling
+    out.position = pose.projectionMatrix * pose.viewMatrix * instanceMatrix * scaledPosition;
     
-    // Transform normal with scaled matrix for lighting consistency
-    out.viewNormal = (pose.viewMatrix * glowMatrix * float4(in.normal, 0.0f)).xyz;
+    // Transform normal
+    out.viewNormal = (pose.viewMatrix * instanceMatrix * float4(in.normal, 0.0f)).xyz;
     
     // Pass texture coordinates for radial falloff calculation
     out.texCoords = in.texCoords;
@@ -193,49 +203,37 @@ VertexOut vertex_dedicated_glow_main(VertexIn in [[stage_in]],
     constant auto &pose = poses[0];
     constant auto &instanceMatrix = instanceMatrices[instanceID];
     
-    // Create scaled version for glow
-    float4x4 glowMatrix = instanceMatrix;
-    glowMatrix.columns[0].xyz *= glow.glowScale;
-    glowMatrix.columns[1].xyz *= glow.glowScale;
-    glowMatrix.columns[2].xyz *= glow.glowScale;
+    // Scale the larger mesh moderately to extend beyond particles
+    float4 scaledPosition = float4(in.position * glow.glowScale * 0.3f, 1.0f);
     
     VertexOut out;
-    out.position = pose.projectionMatrix * pose.viewMatrix * glowMatrix * float4(in.position, 1.0f);
-    out.viewNormal = (pose.viewMatrix * glowMatrix * float4(in.normal, 0.0f)).xyz;
+    // MVP transformation with additional scaling
+    out.position = pose.projectionMatrix * pose.viewMatrix * instanceMatrix * scaledPosition;
+    out.viewNormal = (pose.viewMatrix * instanceMatrix * float4(in.normal, 0.0f)).xyz;
     out.texCoords = in.texCoords;
     out.texCoords.x = 1.0f - out.texCoords.x;
     return out;
 }
 
 // === GLOW FRAGMENT SHADER ===
-// Creates radial falloff effect with additive blending
+// DEBUG: Visible colored glow to verify it's working
 [[fragment]]
 half4 fragment_glow(FragmentIn in [[stage_in]],
                     constant GlowConstants &glow [[buffer(0)]])
 {
-    // Calculate distance from center of cube face (0.5, 0.5)
+    // Calculate distance from center for radial falloff
     float2 centerOffset = in.texCoords - float2(0.5f, 0.5f);
     float distanceFromCenter = length(centerOffset);
     
-    // Create radial falloff using distance from center
-    // Distance of 0.0 = center = full intensity
-    // Distance of 0.5 = edge = zero intensity
-    float normalizedDistance = distanceFromCenter / 0.5f; // Normalize to [0,1]
+    // Create smooth radial falloff
+    float normalizedDistance = distanceFromCenter / 0.5f;
     normalizedDistance = clamp(normalizedDistance, 0.0f, 1.0f);
     
-    // Apply falloff curve - higher exponent = sharper falloff
-    float intensity = pow(1.0f - normalizedDistance, glow.glowFalloff);
+    // Apply falloff curve
+    float intensity = pow(1.0f - normalizedDistance, 2.0f);
     
-    // Apply glow intensity multiplier
-    intensity *= glow.glowIntensity;
-    
-    // Output glow color with calculated alpha
-    // RGB: Glow color tint
-    // Alpha: Controls additive blending intensity
-    half3 finalColor = half3(glow.glowColor * intensity);
-    half finalAlpha = half(intensity);
-    
-    return half4(finalColor, finalAlpha);
+    // Make it clearly visible for debugging - bright red with falloff
+    return half4(1.0, 0.0, 0.0, intensity * 0.4f); // Red with radial falloff
 }
 
 // === GPU PARTICLE PHYSICS COMPUTE SHADER ===
@@ -263,7 +261,7 @@ void updateParticles(device float3 *positions [[buffer(0)]],
                      uint index [[thread_position_in_grid]]) 
 {
     // Bounds check - important for GPU safety
-    if (index >= 50000) return;  // Assuming NUM_INSTANCES = 50000
+
     
     // Get current particle data
     float3 position = positions[index];

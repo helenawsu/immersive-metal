@@ -36,10 +36,15 @@ struct ParticleConstants {
     float boundary;                 // Boundary for particle containment
 };
 
-// Glow effect constants for GPU shaders
+// Glow effect constants for GPU shaders - Enhanced for bloom approximation
 struct GlowConstants {
-    float glowScale;                // Scale factor for glow geometry (1.2 - 2.0)
+    float glowScale;                // Scale factor for glow geometry (3.0 - 8.0 for hybrid bloom)
     float glowIntensity;            // Overall glow brightness multiplier
     simd_float3 glowColor;          // Glow color tint (RGB)
-    float glowFalloff;              // Falloff exponent for radial gradient
+    float innerRadius;              // Inner glow radius (brightest core)
+    float middleRadius;             // Middle glow radius (medium intensity)
+    float outerRadius;              // Outer glow radius (faint outer glow)
+    float brightnessThreshold;      // Minimum brightness for glow effect
+    float glowFalloff;              // Falloff exponent for glow intensity curve
+    float padding;                  // Padding for alignment
 };

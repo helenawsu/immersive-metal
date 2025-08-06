@@ -86,7 +86,7 @@ void SpatialRenderer::makeResources() {
     // Instead of creating separate mesh objects, we create ONE mesh
     // and render it multiple times with different transform matrices
     
-    // Create ONE big box mesh (all instances will use this same geometry)
+    // Create ONE small box mesh for particles (all instances will use this same geometry)
     MDLMesh *boxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.005, 0.005, 0.005)
                                              segments:simd_make_uint3(1, 1, 1)
                                          geometryType:MDLGeometryTypeTriangles
@@ -95,6 +95,16 @@ void SpatialRenderer::makeResources() {
     
     // Create the single mesh object that all instances will share
     _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"iridescent.jpg", _device);
+    
+    // Create a LARGER box mesh specifically for glow effect
+    MDLMesh *glowBoxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.1, 0.1, 0.1)
+                                                segments:simd_make_uint3(1, 1, 1)
+                                            geometryType:MDLGeometryTypeTriangles
+                                           inwardNormals:NO
+                                               allocator:bufferAllocator];
+    
+    // Create the glow mesh object (20x larger than particles)
+    _glowMesh = std::make_unique<TexturedMesh>(glowBoxMesh, @"iridescent.jpg", _device);
     
     // === INSTANCE DATA SETUP ===
     // Create CPU array to hold transform matrices for each instance
@@ -145,7 +155,7 @@ void SpatialRenderer::makeResources() {
     
     // Initialize glow constants with default values
     GlowConstants *glowConstants = (GlowConstants *)[_glowConstantsBuffer contents];
-    glowConstants->glowScale = 3.5f;                                    // Scale glow 1.5x larger than particles
+    glowConstants->glowScale = 5.0f;                                    // Scale glow 1.5x larger than particles
     glowConstants->glowIntensity = 3.8f;                               // 80% intensity
     glowConstants->glowColor = simd_make_float3(0.3f, 0.7f, 1.0f);    // Cyan-blue glow
     glowConstants->glowFalloff = 1.5f;                                 // Quadratic falloff
@@ -192,7 +202,7 @@ void SpatialRenderer::makeRenderPipelines() {
     [functionConstants setConstantValue:&layoutIsLayered type:MTLDataTypeBool withName:@"useLayeredRendering"];
 
     {
-        // === MAIN CONTENT PIPELINE (3D Objects like the Globe) ===
+        // === MAIN CONTENT PIPELINE WITH ALPHA BLENDING FOR GLOW ===
         
         // Select appropriate vertex shader based on rendering mode
         // Dedicated: renders one eye at a time
@@ -209,6 +219,21 @@ void SpatialRenderer::makeRenderPipelines() {
         // (position, normal, texture coordinates)
         pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
         
+        // === ENABLE ALPHA BLENDING FOR RADIAL GLOW FALLOFF ===
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+        
+        // Alpha blending: new_color = src_color * src_alpha + dst_color * (1 - src_alpha)
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        
+        // Use source alpha for transparency control
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        
+        // Destination blending for transparency
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        
         if (!layoutIsDedicated) {
             // === VERTEX AMPLIFICATION SETUP ===
             // For layered rendering, we need special configuration:
@@ -223,6 +248,9 @@ void SpatialRenderer::makeRenderPipelines() {
         if (_contentRenderPipelineState == nil) {
             NSLog(@"Error occurred when creating render pipeline state: %@", error);
         }
+        
+        // Reset blending state for subsequent pipelines
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
     }
     {
         // === ENVIRONMENT PIPELINE (360° Background) ===
@@ -262,7 +290,7 @@ void SpatialRenderer::makeRenderPipelines() {
         pipelineDescriptor.vertexFunction = vertexFunction;
         pipelineDescriptor.fragmentFunction = fragmentFunction;
         
-        // Use same vertex descriptor as content (same mesh geometry)
+        // Use same vertex descriptor as content (both are box meshes)
         pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
         
         // === ADDITIVE BLENDING SETUP ===
@@ -372,7 +400,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     constants->deltaTime = timestep;
     constants->repulsionRadius = REPULSION_RADIUS;
     constants->repulsionStrength = REPULSION_STRENGTH;
-    constants->driftStrength = 0.15f;
+    constants->driftStrength = 0.1f;
     constants->damping = 0.98f;
     constants->centerPullStrength = 0.01f;
     constants->boundary = 3.0f;
@@ -468,29 +496,15 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             [renderCommandEncoder setRenderPipelineState:_environmentRenderPipelineState];  // Use environment shaders
             _environmentMesh->draw(renderCommandEncoder, &poseConstantsForEnvironment[i], 1);
 
-            // === CONTENT RENDERING (Foreground Objects) ===
-            // Render all boxes using TRUE GPU INSTANCING
-            // ONE draw call renders ALL boxes with GPU parallelization
+            // CONTENT RENDERING MOVED AFTER GLOW - see above
+
+            // === CONTENT RENDERING WITH BUILT-IN GLOW ===
+            // Render particles with radial falloff glow effect built into fragment shader
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
             
-            // Disable frustum culling if it's causing issues (uncomment to test)
-            // [renderCommandEncoder setCullMode:MTLCullModeNone];
-            
-            // Single instanced draw call for all boxes
-            _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
-
-            // === GLOW EFFECT RENDERING (Pass 2) ===
-            // Render scaled glow effects using same geometry and instance data
-            [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];
-            [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];
-            
-            // Bind glow constants buffer to fragment shader
-            [renderCommandEncoder setFragmentBuffer:_glowConstantsBuffer offset:0 atIndex:0];
-            [renderCommandEncoder setVertexBuffer:_glowConstantsBuffer offset:0 atIndex:3];
-            
-            // Render glow instances using same instance buffer (scaled in vertex shader)
+            // Single instanced draw call for all boxes with built-in glow
             _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
             [renderCommandEncoder endEncoding];
@@ -517,27 +531,15 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setRenderPipelineState:_environmentRenderPipelineState];
         _environmentMesh->draw(renderCommandEncoder, poseConstantsForEnvironment.data(), viewCount);
 
-        // === CONTENT RENDERING ===
+        // CONTENT RENDERING MOVED AFTER GLOW - see above
+
+        // === CONTENT RENDERING WITH BUILT-IN GLOW ===
+        // Render particles with radial falloff glow effect built into fragment shader
         [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];
         
-        // Disable frustum culling if it's causing issues (uncomment to test)
-        // [renderCommandEncoder setCullMode:MTLCullModeNone];
-        
-        // Single instanced draw call for all boxes with layered rendering (both eyes simultaneously)
-        _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
-
-        // === GLOW EFFECT RENDERING (Pass 2) ===
-        // Render scaled glow effects using same geometry and instance data
-        [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];
-        [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];
-        
-        // Bind glow constants buffer to fragment shader
-        [renderCommandEncoder setFragmentBuffer:_glowConstantsBuffer offset:0 atIndex:0];
-        [renderCommandEncoder setVertexBuffer:_glowConstantsBuffer offset:0 atIndex:3];
-        
-        // Render glow instances using same instance buffer (scaled in vertex shader)
+        // Single instanced draw call for all boxes with built-in glow (both eyes simultaneously)
         _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
         [renderCommandEncoder endEncoding];
