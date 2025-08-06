@@ -138,6 +138,18 @@ void SpatialRenderer::makeResources() {
     _instanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * NUM_INSTANCES 
                                             options:MTLResourceStorageModeShared];
 
+    // === GLOW EFFECT CONSTANTS BUFFER ===
+    // Create GPU buffer for glow effect parameters
+    _glowConstantsBuffer = [_device newBufferWithLength:sizeof(GlowConstants)
+                                                options:MTLResourceStorageModeShared];
+    
+    // Initialize glow constants with default values
+    GlowConstants *glowConstants = (GlowConstants *)[_glowConstantsBuffer contents];
+    glowConstants->glowScale = 3.5f;                                    // Scale glow 1.5x larger than particles
+    glowConstants->glowIntensity = 3.8f;                               // 80% intensity
+    glowConstants->glowColor = simd_make_float3(0.3f, 0.7f, 1.0f);    // Cyan-blue glow
+    glowConstants->glowFalloff = 1.5f;                                 // Quadratic falloff
+
     // === 360° ENVIRONMENT BACKGROUND ===
     // Create a large inverted sphere (3 meter radius) for the environment
     // This provides a 360° HDR background that appears infinitely far away
@@ -236,6 +248,54 @@ void SpatialRenderer::makeRenderPipelines() {
             NSLog(@"Error occurred when creating render pipeline state: %@", error);
         }
     }
+    
+    {
+        // === GLOW EFFECT PIPELINE ===
+        // Creates additive glow effects using scaled geometry instances
+        
+        // Select appropriate glow shaders based on rendering mode
+        vertexFunction = [library newFunctionWithName: layoutIsDedicated ? @"vertex_dedicated_glow_main" : @"vertex_glow_main"
+                                       constantValues:functionConstants
+                                                error:&error];
+        fragmentFunction = [library newFunctionWithName:@"fragment_glow"];
+        
+        pipelineDescriptor.vertexFunction = vertexFunction;
+        pipelineDescriptor.fragmentFunction = fragmentFunction;
+        
+        // Use same vertex descriptor as content (same mesh geometry)
+        pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
+        
+        // === ADDITIVE BLENDING SETUP ===
+        // Enable blending for glow effect accumulation
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+        
+        // Additive blending: new_color = src_color * src_alpha + dst_color * 1
+        // This allows multiple glow effects to accumulate naturally
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        
+        // Source: Use source alpha for intensity control
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        
+        // Destination: Add to existing color (accumulate glow)
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOne;
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOne;
+        
+        if (!layoutIsDedicated) {
+            pipelineDescriptor.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+            pipelineDescriptor.maxVertexAmplificationCount = 2;
+        }
+
+        // Create the glow pipeline state
+        _glowRenderPipelineState = [_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:&error];
+        if (_glowRenderPipelineState == nil) {
+            NSLog(@"Error occurred when creating glow render pipeline state: %@", error);
+        }
+        
+        // Reset blending state for subsequent pipelines
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
+    }
 
     // === DEPTH-STENCIL STATES FOR 3D DEPTH TESTING ===
     
@@ -249,6 +309,12 @@ void SpatialRenderer::makeRenderPipelines() {
     depthDescriptor.depthWriteEnabled = YES;
     depthDescriptor.depthCompareFunction = MTLCompareFunctionGreater;  // Same as content for consistency
     _backgroundDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
+    
+    // === GLOW DEPTH STATE ===
+    // Glow effects render behind solid particles with depth testing but no depth writes
+    depthDescriptor.depthWriteEnabled = NO;   // Don't write to depth buffer (allows overlapping glow)
+    depthDescriptor.depthCompareFunction = MTLCompareFunctionLessEqual;  // Render behind or at same depth as particles
+    _glowDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
     
     // === PARTICLE COMPUTE PIPELINE ===
     // Create compute pipeline for GPU particle physics
@@ -415,6 +481,18 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             // Single instanced draw call for all boxes
             _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
+            // === GLOW EFFECT RENDERING (Pass 2) ===
+            // Render scaled glow effects using same geometry and instance data
+            [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];
+            [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];
+            
+            // Bind glow constants buffer to fragment shader
+            [renderCommandEncoder setFragmentBuffer:_glowConstantsBuffer offset:0 atIndex:0];
+            [renderCommandEncoder setVertexBuffer:_glowConstantsBuffer offset:0 atIndex:3];
+            
+            // Render glow instances using same instance buffer (scaled in vertex shader)
+            _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
+
             [renderCommandEncoder endEncoding];
         }
     } else {
@@ -448,6 +526,18 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         // [renderCommandEncoder setCullMode:MTLCullModeNone];
         
         // Single instanced draw call for all boxes with layered rendering (both eyes simultaneously)
+        _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
+
+        // === GLOW EFFECT RENDERING (Pass 2) ===
+        // Render scaled glow effects using same geometry and instance data
+        [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];
+        [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];
+        
+        // Bind glow constants buffer to fragment shader
+        [renderCommandEncoder setFragmentBuffer:_glowConstantsBuffer offset:0 atIndex:0];
+        [renderCommandEncoder setVertexBuffer:_glowConstantsBuffer offset:0 atIndex:3];
+        
+        // Render glow instances using same instance buffer (scaled in vertex shader)
         _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
         [renderCommandEncoder endEncoding];

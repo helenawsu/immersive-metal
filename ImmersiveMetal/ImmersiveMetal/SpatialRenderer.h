@@ -30,8 +30,10 @@ private:
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _environmentRenderPipelineState;
     id<MTLRenderPipelineState> _contentRenderPipelineState;
+    id<MTLRenderPipelineState> _glowRenderPipelineState;        // NEW: Glow effect pipeline
     id<MTLDepthStencilState> _contentDepthStencilState;
     id<MTLDepthStencilState> _backgroundDepthStencilState;
+    id<MTLDepthStencilState> _glowDepthStencilState;            // NEW: Glow depth state
     
     // === COMPUTE SHADER PIPELINE FOR PARTICLE PHYSICS ===
     id<MTLComputePipelineState> _particleComputePipelineState;
@@ -49,6 +51,7 @@ private:
     id<MTLBuffer> _particleVelocitiesBuffer;       // GPU buffer for particle velocities  
     id<MTLBuffer> _handPositionsBuffer;            // GPU buffer for hand positions
     id<MTLBuffer> _particleConstantsBuffer;        // GPU buffer for physics constants
+    id<MTLBuffer> _glowConstantsBuffer;            // NEW: GPU buffer for glow constants
     
     // === HAND TRACKING ===
     std::vector<simd_float3> _handPositions;       // Current hand positions for repulsion

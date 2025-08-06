@@ -130,6 +130,114 @@ half4 fragment_main(FragmentIn in [[stage_in]],
     return color;
 }
 
+// === GLOW EFFECT VERTEX SHADERS ===
+// Renders scaled versions of particle cubes for glow effect using same instance data
+
+// Glow constants for controlling glow appearance
+struct GlowConstants {
+    float glowScale;           // Scale factor for glow geometry (1.2 - 2.0)
+    float glowIntensity;       // Overall glow brightness multiplier
+    float3 glowColor;          // Glow color tint
+    float glowFalloff;         // Falloff exponent for radial gradient
+};
+
+// === GLOW VERTEX SHADER: LAYERED RENDERING ===
+[[vertex]]
+LayeredVertexOut vertex_glow_main(VertexIn in [[stage_in]],
+                                  constant PoseConstants *poses [[buffer(1)]],
+                                  constant float4x4 *instanceMatrices [[buffer(2)]],
+                                  constant GlowConstants &glow [[buffer(3)]],
+                                  uint amplificationID [[amplification_id]],
+                                  uint instanceID [[instance_id]])
+{
+    // Get pose for this eye (left/right)
+    constant auto &pose = poses[amplificationID];
+    constant auto &instanceMatrix = instanceMatrices[instanceID];
+    
+    // Create scaled version of instance matrix for glow effect
+    float4x4 glowMatrix = instanceMatrix;
+    glowMatrix.columns[0].xyz *= glow.glowScale; // Scale X axis
+    glowMatrix.columns[1].xyz *= glow.glowScale; // Scale Y axis
+    glowMatrix.columns[2].xyz *= glow.glowScale; // Scale Z axis
+    // Translation (W component) remains unchanged - glow centered on particle
+    
+    LayeredVertexOut out;
+    
+    // Standard MVP transformation with scaled matrix
+    out.position = pose.projectionMatrix * pose.viewMatrix * glowMatrix * float4(in.position, 1.0f);
+    
+    // Transform normal with scaled matrix for lighting consistency
+    out.viewNormal = (pose.viewMatrix * glowMatrix * float4(in.normal, 0.0f)).xyz;
+    
+    // Pass texture coordinates for radial falloff calculation
+    out.texCoords = in.texCoords;
+    out.texCoords.x = 1.0f - out.texCoords.x;
+    
+    // Multi-view output routing
+    if (useLayeredRendering) {
+        out.renderTargetIndex = amplificationID;
+    }
+    out.viewportIndex = amplificationID;
+    
+    return out;
+}
+
+// === GLOW VERTEX SHADER: DEDICATED RENDERING ===
+[[vertex]]
+VertexOut vertex_dedicated_glow_main(VertexIn in [[stage_in]],
+                                     constant PoseConstants *poses [[buffer(1)]],
+                                     constant float4x4 *instanceMatrices [[buffer(2)]],
+                                     constant GlowConstants &glow [[buffer(3)]],
+                                     uint instanceID [[instance_id]])
+{
+    constant auto &pose = poses[0];
+    constant auto &instanceMatrix = instanceMatrices[instanceID];
+    
+    // Create scaled version for glow
+    float4x4 glowMatrix = instanceMatrix;
+    glowMatrix.columns[0].xyz *= glow.glowScale;
+    glowMatrix.columns[1].xyz *= glow.glowScale;
+    glowMatrix.columns[2].xyz *= glow.glowScale;
+    
+    VertexOut out;
+    out.position = pose.projectionMatrix * pose.viewMatrix * glowMatrix * float4(in.position, 1.0f);
+    out.viewNormal = (pose.viewMatrix * glowMatrix * float4(in.normal, 0.0f)).xyz;
+    out.texCoords = in.texCoords;
+    out.texCoords.x = 1.0f - out.texCoords.x;
+    return out;
+}
+
+// === GLOW FRAGMENT SHADER ===
+// Creates radial falloff effect with additive blending
+[[fragment]]
+half4 fragment_glow(FragmentIn in [[stage_in]],
+                    constant GlowConstants &glow [[buffer(0)]])
+{
+    // Calculate distance from center of cube face (0.5, 0.5)
+    float2 centerOffset = in.texCoords - float2(0.5f, 0.5f);
+    float distanceFromCenter = length(centerOffset);
+    
+    // Create radial falloff using distance from center
+    // Distance of 0.0 = center = full intensity
+    // Distance of 0.5 = edge = zero intensity
+    float normalizedDistance = distanceFromCenter / 0.5f; // Normalize to [0,1]
+    normalizedDistance = clamp(normalizedDistance, 0.0f, 1.0f);
+    
+    // Apply falloff curve - higher exponent = sharper falloff
+    float intensity = pow(1.0f - normalizedDistance, glow.glowFalloff);
+    
+    // Apply glow intensity multiplier
+    intensity *= glow.glowIntensity;
+    
+    // Output glow color with calculated alpha
+    // RGB: Glow color tint
+    // Alpha: Controls additive blending intensity
+    half3 finalColor = half3(glow.glowColor * intensity);
+    half finalAlpha = half(intensity);
+    
+    return half4(finalColor, finalAlpha);
+}
+
 // === GPU PARTICLE PHYSICS COMPUTE SHADER ===
 // Handles particle movement, hand repulsion, and orbital motion on the GPU
 // Each thread processes one particle in parallel

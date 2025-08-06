@@ -35,3 +35,11 @@ struct ParticleConstants {
     float centerPullStrength;       // Attraction to head position
     float boundary;                 // Boundary for particle containment
 };
+
+// Glow effect constants for GPU shaders
+struct GlowConstants {
+    float glowScale;                // Scale factor for glow geometry (1.2 - 2.0)
+    float glowIntensity;            // Overall glow brightness multiplier
+    simd_float3 glowColor;          // Glow color tint (RGB)
+    float glowFalloff;              // Falloff exponent for radial gradient
+};
