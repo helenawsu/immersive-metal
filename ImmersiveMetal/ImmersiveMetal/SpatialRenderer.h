@@ -30,8 +30,10 @@ private:
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _environmentRenderPipelineState;
     id<MTLRenderPipelineState> _contentRenderPipelineState;
+    id<MTLRenderPipelineState> _glowRenderPipelineState;        // Glow effect pipeline
     id<MTLDepthStencilState> _contentDepthStencilState;
     id<MTLDepthStencilState> _backgroundDepthStencilState;
+    id<MTLDepthStencilState> _glowDepthStencilState;            // Glow depth state
     
     // === COMPUTE SHADER PIPELINE FOR PARTICLE PHYSICS ===
     id<MTLComputePipelineState> _particleComputePipelineState;
@@ -40,7 +42,8 @@ private:
     
     // === SIMPLE INSTANCED RENDERING ===
     // Single mesh rendered multiple times with different transforms
-    std::unique_ptr<TexturedMesh> _boxMesh;        // ONE mesh for all instances
+    std::unique_ptr<TexturedMesh> _boxMesh;        // Small mesh for particles
+    std::unique_ptr<TexturedMesh> _glowMesh;       // Large mesh for glow effect
     id<MTLBuffer> _instanceBuffer;                 // GPU buffer with transform matrices
     std::vector<simd_float4x4> _instanceTransforms; // CPU array with transforms
     

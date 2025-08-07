@@ -96,6 +96,16 @@ void SpatialRenderer::makeResources() {
     // Create the single mesh object that all instances will share
     _boxMesh = std::make_unique<TexturedMesh>(boxMesh, @"iridescent.jpg", _device);
     
+    // Create a LARGER box mesh specifically for glow effect (20x larger than particles)
+    MDLMesh *glowBoxMesh = [MDLMesh newBoxWithDimensions:simd_make_float3(0.01, 0.01, 0.01)
+                                                segments:simd_make_uint3(1, 1, 1)
+                                            geometryType:MDLGeometryTypeTriangles
+                                           inwardNormals:NO
+                                               allocator:bufferAllocator];
+    
+    // Create the glow mesh object (transparent cyan blue cubes)
+    _glowMesh = std::make_unique<TexturedMesh>(glowBoxMesh, @"iridescent.jpg", _device);
+    
     // === INSTANCE DATA SETUP ===
     // Create CPU array to hold transform matrices for each instance
     _instanceTransforms.resize(NUM_INSTANCES);
@@ -197,20 +207,7 @@ void SpatialRenderer::makeRenderPipelines() {
         // (position, normal, texture coordinates)
         pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
         
-        // === ENABLE ALPHA BLENDING FOR RADIAL GLOW FALLOFF ===
-        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
-        
-        // Alpha blending: new_color = src_color * src_alpha + dst_color * (1 - src_alpha)
-        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
-        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
-        
-        // Use source alpha for transparency control
-        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
-        
-        // Destination blending for transparency
-        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        // No blending needed for solid particle cubes
         
         if (!layoutIsDedicated) {
             // === VERTEX AMPLIFICATION SETUP ===
@@ -254,6 +251,52 @@ void SpatialRenderer::makeRenderPipelines() {
             NSLog(@"Error occurred when creating render pipeline state: %@", error);
         }
     }
+    
+    {
+        // === GLOW EFFECT PIPELINE ===
+        // Creates transparent cyan glow cubes that render behind particles
+        
+        // Select appropriate glow vertex shader based on rendering mode
+        vertexFunction = [library newFunctionWithName: layoutIsDedicated ? @"vertex_dedicated_main" : @"vertex_main"
+                                       constantValues:functionConstants
+                                                error:&error];
+        fragmentFunction = [library newFunctionWithName:@"fragment_glow"];
+        
+        pipelineDescriptor.vertexFunction = vertexFunction;
+        pipelineDescriptor.fragmentFunction = fragmentFunction;
+        
+        // Use glow mesh vertex descriptor
+        pipelineDescriptor.vertexDescriptor = _glowMesh->vertexDescriptor();
+        
+        // === ALPHA BLENDING SETUP FOR TRANSPARENCY ===
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+        
+        // Standard alpha blending: new_color = src_color * src_alpha + dst_color * (1 - src_alpha)
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        
+        // Use source alpha for transparency
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        
+        // Blend with background
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        
+        if (!layoutIsDedicated) {
+            pipelineDescriptor.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+            pipelineDescriptor.maxVertexAmplificationCount = 2;
+        }
+
+        // Create the glow pipeline state
+        _glowRenderPipelineState = [_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:&error];
+        if (_glowRenderPipelineState == nil) {
+            NSLog(@"Error occurred when creating glow render pipeline state: %@", error);
+        }
+        
+        // Reset blending state for subsequent pipelines
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
+    }
 
     // === DEPTH-STENCIL STATES FOR 3D DEPTH TESTING ===
     
@@ -267,6 +310,12 @@ void SpatialRenderer::makeRenderPipelines() {
     depthDescriptor.depthWriteEnabled = YES;
     depthDescriptor.depthCompareFunction = MTLCompareFunctionGreater;  // Same as content for consistency
     _backgroundDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
+    
+    // === GLOW DEPTH STATE ===
+    // Glow cubes render always - no depth testing for debugging visibility
+    depthDescriptor.depthWriteEnabled = NO;   // Don't write depth (allows particles to render on top)
+    depthDescriptor.depthCompareFunction = MTLCompareFunctionAlways;  // Always render (ignore depth)
+    _glowDepthStencilState = [_device newDepthStencilStateWithDescriptor:depthDescriptor];
     
     // === PARTICLE COMPUTE PIPELINE ===
     // Create compute pipeline for GPU particle physics
@@ -422,13 +471,22 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
 
             // CONTENT RENDERING MOVED AFTER GLOW - see above
 
-            // === CONTENT RENDERING WITH BUILT-IN GLOW ===
-            // Render particles with radial falloff glow effect built into fragment shader
+            // === GLOW EFFECT RENDERING (Pass 1 - Background Layer) ===
+            // Render large transparent glow cubes behind particles
+            [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+            [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];      // No depth write
+            [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];   // Transparent glow shader
+            
+            // Draw large glow cubes
+            _glowMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
+
+            // === CONTENT RENDERING (Pass 2 - Foreground Layer) ===
+            // Render small particle cubes on top of glow
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
             
-            // Single instanced draw call for all boxes with built-in glow
+            // Draw small particle cubes
             _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
             [renderCommandEncoder endEncoding];
@@ -457,13 +515,22 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
 
         // CONTENT RENDERING MOVED AFTER GLOW - see above
 
-        // === CONTENT RENDERING WITH BUILT-IN GLOW ===
-        // Render particles with radial falloff glow effect built into fragment shader
+        // === GLOW EFFECT RENDERING (Pass 1 - Background Layer) ===
+        // Render large transparent glow cubes behind particles
+        [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+        [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];      // No depth write
+        [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];   // Transparent glow shader
+        
+        // Draw large glow cubes (both eyes simultaneously)
+        _glowMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
+
+        // === CONTENT RENDERING (Pass 2 - Foreground Layer) ===
+        // Render small particle cubes on top of glow
         [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];
         
-        // Single instanced draw call for all boxes with built-in glow (both eyes simultaneously)
+        // Draw small particle cubes (both eyes simultaneously)
         _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
         [renderCommandEncoder endEncoding];

@@ -108,34 +108,29 @@ VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
     return out;
 }
 
-// === FRAGMENT SHADER: PIXEL COLOR CALCULATION WITH RADIAL GLOW FALLOFF ===
+// === FRAGMENT SHADER: PIXEL COLOR CALCULATION ===
 // Runs once per pixel to determine final color output
 [[fragment]]
 half4 fragment_main(FragmentIn in [[stage_in]],
                     texture2d<half, access::sample> texture [[texture(0)]])
 {
     // === TEXTURE SAMPLING ===
+    // Create a sampler that defines how to read the texture
     constexpr sampler environmentSampler(coord::normalized, filter::linear, mip_filter::none, address::repeat);
+    
+    // Sample the diffuse texture at the interpolated UV coordinates
     half4 color = texture.sample(environmentSampler, in.texCoords);
     
-    // === RADIAL GLOW FALLOFF ===
-    // Calculate distance from center of cube face (0.5, 0.5)
-    float2 centerOffset = in.texCoords - float2(0.5f, 0.5f);
-    float distanceFromCenter = length(centerOffset);
-    
-    // Create radial falloff from center to edges
-    // Distance of 0.0 = center = full intensity
-    // Distance of 0.5 = edge = zero intensity
-    float normalizedDistance = distanceFromCenter / 0.5f;
-    normalizedDistance = clamp(normalizedDistance, 0.0f, 1.0f);
-    
-    // Apply smooth falloff curve
-    float glowIntensity = pow(1.0f - normalizedDistance, 1.5f);
-    
-    // Apply the glow falloff to the alpha channel for transparency at edges
-    color.a *= glowIntensity;
-    
     return color;
+}
+
+// === SIMPLE GLOW FRAGMENT SHADER ===
+// Creates transparent red glow cubes for debugging visibility
+[[fragment]]
+half4 fragment_glow(FragmentIn in [[stage_in]])
+{
+    // Simple transparent red color - highly visible
+    return half4(0.0, 1.0, 1.0, 0.5); // Bright red with 50% opacity
 }
 
 // === GPU PARTICLE PHYSICS COMPUTE SHADER ===
