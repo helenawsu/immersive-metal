@@ -22,6 +22,12 @@ static const bool CIRCULAR_PLACEMENT = true;  // Set to true for 360° box place
 static const float REPULSION_RADIUS = 0.3f;    // Radius around hands that affects particles (30cm)
 static const float REPULSION_STRENGTH = 5.0f;  // How strong the repulsion force is
 
+// === TRAIL SYSTEM CONFIGURATION ===
+static const int TRAIL_LENGTH = 8;                    // Number of trail segments per particle
+static const float TRAIL_FADE_RATE = 0.125f;          // Alpha fade per segment (1/8)
+static const float TRAIL_SIZE_SCALE = 0.7f;           // Trail particle size relative to main
+static const int TOTAL_TRAIL_INSTANCES = NUM_INSTANCES * TRAIL_LENGTH; // 400,000 trail instances
+
 // Helper function to create translation matrix
 static simd_float4x4 simd_matrix4x4_translation(simd_float3 translation) {
     return simd_matrix(
@@ -113,12 +119,20 @@ void SpatialRenderer::makeResources() {
 
     // === GPU PARTICLE SYSTEM INITIALIZATION ===
     // Create GPU buffers for particle data - much more efficient than CPU vectors
-    _particlePositionsBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES 
+    _particlePositionsBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES
                                                      options:MTLResourceStorageModeShared];
-    _particleVelocitiesBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES 
+    _particleVelocitiesBuffer = [_device newBufferWithLength:sizeof(simd_float3) * NUM_INSTANCES
                                                       options:MTLResourceStorageModeShared];
-    _particleConstantsBuffer = [_device newBufferWithLength:sizeof(ParticleConstants) 
+    _particleConstantsBuffer = [_device newBufferWithLength:sizeof(ParticleConstants)
                                                     options:MTLResourceStorageModeShared];
+    
+    // === TRAIL SYSTEM GPU BUFFERS ===
+    _trailPositionHistoryBuffer = [_device newBufferWithLength:sizeof(simd_float3) * TRAIL_LENGTH * NUM_INSTANCES
+                                                        options:MTLResourceStorageModeShared];
+    _trailInstanceBuffer = [_device newBufferWithLength:sizeof(simd_float4x4) * TOTAL_TRAIL_INSTANCES
+                                                 options:MTLResourceStorageModeShared];
+    _trailConfigBuffer = [_device newBufferWithLength:sizeof(TrailConstants)
+                                               options:MTLResourceStorageModeShared];
     
     // Initialize particle positions and velocities directly in GPU buffers
     simd_float3 *positions = (simd_float3 *)[_particlePositionsBuffer contents];
@@ -141,6 +155,22 @@ void SpatialRenderer::makeResources() {
         z = -1.0f + (static_cast<float>(rand()) / RAND_MAX) * 2.0f;  // Random between -1 and 1
         velocities[i] = simd_make_float3(x, y, z);
     }
+    
+    // === TRAIL HISTORY INITIALIZATION ===
+    // Initialize trail history to current positions (all segments start at same position)
+    simd_float3 *trailHistory = (simd_float3 *)[_trailPositionHistoryBuffer contents];
+    for (int particleIndex = 0; particleIndex < NUM_INSTANCES; ++particleIndex) {
+        for (int trailIndex = 0; trailIndex < TRAIL_LENGTH; ++trailIndex) {
+            trailHistory[particleIndex * TRAIL_LENGTH + trailIndex] = positions[particleIndex];
+        }
+    }
+    
+    // Initialize trail constants
+    TrailConstants *trailConstants = (TrailConstants *)[_trailConfigBuffer contents];
+    trailConstants->trailLength = TRAIL_LENGTH;
+    trailConstants->fadeRate = TRAIL_FADE_RATE;
+    trailConstants->sizeScale = TRAIL_SIZE_SCALE;
+    trailConstants->frameIndex = 0;
 
     
     // Create GPU buffer to hold the transform matrices
@@ -297,6 +327,45 @@ void SpatialRenderer::makeRenderPipelines() {
         // Reset blending state for subsequent pipelines
         pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
     }
+    
+    {
+        // === TRAIL RENDERING PIPELINE ===
+        // Creates fading trail segments behind particles
+        
+        vertexFunction = [library newFunctionWithName: layoutIsDedicated ? @"vertex_dedicated_main" : @"vertex_main"
+                                       constantValues:functionConstants
+                                                error:&error];
+        fragmentFunction = [library newFunctionWithName:@"fragment_trail"];
+        
+        pipelineDescriptor.vertexFunction = vertexFunction;
+        pipelineDescriptor.fragmentFunction = fragmentFunction;
+        pipelineDescriptor.vertexDescriptor = _glowMesh->vertexDescriptor();
+        
+        // === ALPHA BLENDING FOR TRANSPARENT TRAILS ===
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        
+        if (!layoutIsDedicated) {
+            pipelineDescriptor.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+            pipelineDescriptor.maxVertexAmplificationCount = 2;
+        }
+        
+        // Create the trail pipeline state
+        _trailRenderPipelineState = [_device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:&error];
+        if (_trailRenderPipelineState == nil) {
+            NSLog(@"Error occurred when creating trail render pipeline state: %@", error);
+        }
+        
+        // Reset blending state for subsequent pipelines
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = NO;
+    }
 
     // === DEPTH-STENCIL STATES FOR 3D DEPTH TESTING ===
     
@@ -387,7 +456,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     [computeEncoder setBuffer:_particleVelocitiesBuffer offset:0 atIndex:1];
     [computeEncoder setBuffer:_handPositionsBuffer offset:0 atIndex:2];
     [computeEncoder setBuffer:_particleConstantsBuffer offset:0 atIndex:3];
-    [computeEncoder setBuffer:_instanceBuffer offset:0 atIndex:4];  // Add instance transforms buffer
+    [computeEncoder setBuffer:_instanceBuffer offset:0 atIndex:4];           // Instance transforms buffer
+    [computeEncoder setBuffer:_trailPositionHistoryBuffer offset:0 atIndex:5]; // Trail position history
+    [computeEncoder setBuffer:_trailInstanceBuffer offset:0 atIndex:6];        // Trail instance transforms
+    [computeEncoder setBuffer:_trailConfigBuffer offset:0 atIndex:7];          // Trail constants
     
     // Calculate optimal thread group size for GPU
     NSUInteger threadsPerGroup = _particleComputePipelineState.maxTotalThreadsPerThreadgroup;
@@ -480,8 +552,18 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             // Draw large glow cubes
             _glowMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
+            // === TRAIL RENDERING (Pass 1.5 - Between Glow and Particles) ===
+            // Render fading trail segments behind particles
+            [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+            [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];       // Same as glow for proper layering
+            [renderCommandEncoder setRenderPipelineState:_trailRenderPipelineState];  // Trail shader with age-based fading
+            [renderCommandEncoder setFragmentBuffer:_trailConfigBuffer offset:0 atIndex:0]; // Trail constants for fragment shader
+            
+            // Draw all trail segments
+            _glowMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _trailInstanceBuffer, TOTAL_TRAIL_INSTANCES);
+
             // === CONTENT RENDERING (Pass 2 - Foreground Layer) ===
-            // Render small particle cubes on top of glow
+            // Render small particle cubes on top of trails
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
@@ -524,8 +606,18 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         // Draw large glow cubes (both eyes simultaneously)
         _glowMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
+        // === TRAIL RENDERING (Pass 1.5 - Between Glow and Particles) ===
+        // Render fading trail segments behind particles (both eyes simultaneously)
+        [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
+        [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];       // Same as glow for proper layering
+        [renderCommandEncoder setRenderPipelineState:_trailRenderPipelineState];  // Trail shader with age-based fading
+        [renderCommandEncoder setFragmentBuffer:_trailConfigBuffer offset:0 atIndex:0]; // Trail constants for fragment shader
+        
+        // Draw all trail segments (both eyes simultaneously)
+        _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _trailInstanceBuffer, TOTAL_TRAIL_INSTANCES);
+
         // === CONTENT RENDERING (Pass 2 - Foreground Layer) ===
-        // Render small particle cubes on top of glow
+        // Render small particle cubes on top of trails
         [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];

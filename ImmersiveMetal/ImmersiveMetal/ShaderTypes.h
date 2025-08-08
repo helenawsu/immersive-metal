@@ -36,3 +36,11 @@ struct ParticleConstants {
     float boundary;                 // Boundary for particle containment
 };
 
+// Trail rendering constants for GPU compute shader
+struct TrailConstants {
+    uint32_t trailLength;           // Number of trail segments (8)
+    float fadeRate;                 // Alpha fade per segment (0.125)
+    float sizeScale;                // Size scaling factor (0.7)
+    uint32_t frameIndex;            // Current frame for circular buffer rotation
+};
+

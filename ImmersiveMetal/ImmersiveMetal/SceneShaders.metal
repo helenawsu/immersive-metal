@@ -2,6 +2,8 @@
 #include <metal_stdlib>
 using namespace metal;
 
+#include "ShaderTypes.h"
+
 // Vision Pro rendering mode selection (set by CPU)
 constant bool useLayeredRendering [[function_constant(0)]];
 
@@ -37,11 +39,8 @@ struct FragmentIn {
     uint viewportIndex [[viewport_array_index]];
 };
 
-// === GPU TRANSFORMATION DATA ===
-struct PoseConstants {
-    float4x4 projectionMatrix;        // Camera → Screen transformation
-    float4x4 viewMatrix;              // World → Camera transformation
-};
+
+
 
 // Removed InstanceConstants struct - now using direct float4x4 array for better performance
 
@@ -133,32 +132,46 @@ half4 fragment_glow(FragmentIn in [[stage_in]])
     return half4(0.0, 1.0, 1.0, 0.5); // Bright red with 50% opacity
 }
 
+// === TRAIL FRAGMENT SHADER WITH AGE-BASED FADING ===
+// Note: Fragment shaders cannot access instance_id directly
+// Trail aging is handled by passing different alpha values through vertex data
+// or by using different draw calls with different constants
+[[fragment]]
+half4 fragment_trail(FragmentIn in [[stage_in]],
+                     texture2d<half, access::sample> texture [[texture(0)]],
+                     constant TrailConstants &trailConstants [[buffer(0)]])
+{
+    // Sample base texture
+    constexpr sampler textureSampler(coord::normalized, filter::linear, address::repeat);
+    half4 color = texture.sample(textureSampler, in.texCoords);
+    
+    // Apply base alpha fade - specific aging is handled by vertex shader or instance constants
+    // For now, use a uniform fade that can be modulated per-instance at draw time
+    color.a *= half(trailConstants.fadeRate);
+    
+    return color;
+}
+
 // === GPU PARTICLE PHYSICS COMPUTE SHADER ===
 // Handles particle movement, hand repulsion, and orbital motion on the GPU
 // Each thread processes one particle in parallel
 
-struct ParticleConstants {
-    float3 headPosition;        // Current head position for orbital attraction
-    uint handCount;             // Number of active hands
-    float deltaTime;            // Frame time delta for smooth animation
-    float repulsionRadius;      // Radius around hands that affects particles
-    float repulsionStrength;    // How strong the repulsion force is
-    float driftStrength;        // Random drift force strength
-    float damping;              // Velocity damping factor
-    float centerPullStrength;   // Attraction to head position
-    float boundary;             // Boundary for particle containment
-};
+
+
 
 [[kernel]]
 void updateParticles(device float3 *positions [[buffer(0)]],
                      device float3 *velocities [[buffer(1)]],
                      constant float3 *handPositions [[buffer(2)]],
                      constant ParticleConstants &constants [[buffer(3)]],
-                     device float4x4 *instanceTransforms [[buffer(4)]],  // NEW: Instance transforms output
-                     uint index [[thread_position_in_grid]]) 
+                     device float4x4 *instanceTransforms [[buffer(4)]],  // Instance transforms output
+                     device float3 *trailHistory [[buffer(5)]],          // Trail position history
+                     device float4x4 *trailTransforms [[buffer(6)]],     // Trail instance transforms
+                     constant TrailConstants &trailConstants [[buffer(7)]], // Trail config
+                     uint index [[thread_position_in_grid]])
 {
     // Bounds check - important for GPU safety
-
+    if (index >= constants.boundary * 1000) return; // Using boundary as rough particle count check
     
     // Get current particle data
     float3 position = positions[index];
@@ -247,6 +260,33 @@ void updateParticles(device float3 *positions [[buffer(0)]],
         position.z = clamp(position.z, -constants.boundary, constants.boundary);
     }
     
+    // === TRAIL POSITION HISTORY UPDATE ===
+    // Shift trail history (move older positions down the chain)
+    uint trailBaseIndex = index * trailConstants.trailLength;
+    for (int i = int(trailConstants.trailLength) - 1; i > 0; i--) {
+        trailHistory[trailBaseIndex + uint(i)] = trailHistory[trailBaseIndex + uint(i - 1)];
+    }
+    // Store current position as most recent trail segment
+    trailHistory[trailBaseIndex] = position;
+    
+    // === TRAIL TRANSFORM MATRIX GENERATION ===
+    for (uint trailIndex = 0; trailIndex < trailConstants.trailLength; trailIndex++) {
+        float3 trailPos = trailHistory[trailBaseIndex + trailIndex];
+        
+        // Calculate age-based scaling
+        float age = float(trailIndex) / float(trailConstants.trailLength);
+        float scale = trailConstants.sizeScale * (1.0f - age * 0.3f); // Slight size fade
+        
+        // Generate scaled transformation matrix
+        uint trailInstanceIndex = index * trailConstants.trailLength + trailIndex;
+        trailTransforms[trailInstanceIndex] = float4x4(
+            float4(scale, 0.0, 0.0, 0.0),
+            float4(0.0, scale, 0.0, 0.0),
+            float4(0.0, 0.0, scale, 0.0),
+            float4(trailPos, 1.0)
+        );
+    }
+
     // === GENERATE TRANSFORMATION MATRIX ON GPU ===
     // Create translation matrix directly from updated position
     // This eliminates the CPU->GPU roundtrip completely!

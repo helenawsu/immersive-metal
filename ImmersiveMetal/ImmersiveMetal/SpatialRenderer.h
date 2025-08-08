@@ -53,6 +53,12 @@ private:
     id<MTLBuffer> _handPositionsBuffer;            // GPU buffer for hand positions
     id<MTLBuffer> _particleConstantsBuffer;        // GPU buffer for physics constants
     
+    // === TRAIL SYSTEM BUFFERS ===
+    id<MTLBuffer> _trailPositionHistoryBuffer;     // [TRAIL_LENGTH][NUM_INSTANCES] position history
+    id<MTLBuffer> _trailInstanceBuffer;            // Transform matrices for all trail segments
+    id<MTLBuffer> _trailConfigBuffer;              // Trail rendering constants
+    id<MTLRenderPipelineState> _trailRenderPipelineState; // Specialized trail rendering pipeline
+    
     // === HAND TRACKING ===
     std::vector<simd_float3> _handPositions;       // Current hand positions for repulsion
     
