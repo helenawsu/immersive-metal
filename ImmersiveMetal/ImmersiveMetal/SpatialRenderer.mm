@@ -25,7 +25,7 @@ static const float REPULSION_STRENGTH = 5.0f;  // How strong the repulsion force
 // === TRAIL SYSTEM CONFIGURATION ===
 static const int TRAIL_LENGTH = 8;                    // Number of trail segments per particle
 static const float TRAIL_FADE_RATE = 0.125f;          // Alpha fade per segment (1/8)
-static const float TRAIL_SIZE_SCALE = 0.7f;           // Trail particle size relative to main
+static const float TRAIL_SIZE_SCALE = 1.0f;           // Trail particle size same as glow cubes
 static const int TOTAL_TRAIL_INSTANCES = NUM_INSTANCES * TRAIL_LENGTH; // 400,000 trail instances
 
 // Helper function to create translation matrix
@@ -614,7 +614,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setFragmentBuffer:_trailConfigBuffer offset:0 atIndex:0]; // Trail constants for fragment shader
         
         // Draw all trail segments (both eyes simultaneously)
-        _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _trailInstanceBuffer, TOTAL_TRAIL_INSTANCES);
+        _glowMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _trailInstanceBuffer, TOTAL_TRAIL_INSTANCES);
 
         // === CONTENT RENDERING (Pass 2 - Foreground Layer) ===
         // Render small particle cubes on top of trails

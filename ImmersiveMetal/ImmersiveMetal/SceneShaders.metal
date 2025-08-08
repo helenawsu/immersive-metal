@@ -128,8 +128,7 @@ half4 fragment_main(FragmentIn in [[stage_in]],
 [[fragment]]
 half4 fragment_glow(FragmentIn in [[stage_in]])
 {
-    // Simple transparent red color - highly visible
-    return half4(0.0, 1.0, 1.0, 0.5); // Bright red with 50% opacity
+    return half4(0.0, 1.0, 1.0, 0.5); // cyan
 }
 
 // === TRAIL FRAGMENT SHADER WITH AGE-BASED FADING ===
@@ -143,13 +142,15 @@ half4 fragment_trail(FragmentIn in [[stage_in]],
 {
     // Sample base texture
     constexpr sampler textureSampler(coord::normalized, filter::linear, address::repeat);
-    half4 color = texture.sample(textureSampler, in.texCoords);
+//    half4 color = texture.sample(textureSampler, in.texCoords);
+    half4 color = half4(0.0, 1.0, 1.0, 0.5);
     
     // Apply base alpha fade - specific aging is handled by vertex shader or instance constants
     // For now, use a uniform fade that can be modulated per-instance at draw time
     color.a *= half(trailConstants.fadeRate);
     
-    return color;
+    return color; //faded cyan
+
 }
 
 // === GPU PARTICLE PHYSICS COMPUTE SHADER ===
