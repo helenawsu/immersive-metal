@@ -171,6 +171,12 @@ void SpatialRenderer::makeResources() {
     trailConstants->fadeRate = TRAIL_FADE_RATE;
     trailConstants->sizeScale = TRAIL_SIZE_SCALE;
     trailConstants->frameIndex = 0;
+    
+    // Initialize breathing constants (set once, never change except currentTime)
+    ParticleConstants *particleConstants = (ParticleConstants *)[_particleConstantsBuffer contents];
+    particleConstants->breathingFrequency = 0.5f;      // 1.5 breaths per second base rate
+    particleConstants->breathingIntensity = 0.9f;      // ±40% brightness variation
+    particleConstants->velocityFrequencyScale = 0.0f;  // How much velocity affects frequency
 
     
     // Create GPU buffer to hold the transform matrices
@@ -237,7 +243,16 @@ void SpatialRenderer::makeRenderPipelines() {
         // (position, normal, texture coordinates)
         pipelineDescriptor.vertexDescriptor = _boxMesh->vertexDescriptor();
         
-        // No blending needed for solid particle cubes
+        // === ALPHA BLENDING FOR BREATHING PARTICLES ===
+        pipelineDescriptor.colorAttachments[0].blendingEnabled = YES;
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+        
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
         
         if (!layoutIsDedicated) {
             // === VERTEX AMPLIFICATION SETUP ===
@@ -446,6 +461,7 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
     constants->damping = 0.98f;
     constants->centerPullStrength = 0.01f;
     constants->boundary = 3.0f;
+    constants->currentTime = _sceneTime;  // Update current time for breathing animation
     
     // Create compute command encoder for particle physics
     id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
@@ -549,6 +565,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];      // No depth write
             [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];   // Transparent glow shader
             
+            // Bind velocity buffer for glow effect breathing
+            [renderCommandEncoder setVertexBuffer:_particleVelocitiesBuffer offset:0 atIndex:3];
+            [renderCommandEncoder setFragmentBuffer:_particleConstantsBuffer offset:0 atIndex:1]; // Breathing constants
+            
             // Draw large glow cubes
             _glowMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
 
@@ -567,6 +587,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
             [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];  // Standard winding order
             [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];    // Standard depth testing
             [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];  // Use content shaders
+            
+            // Bind velocity buffer for main particles breathing
+            [renderCommandEncoder setVertexBuffer:_particleVelocitiesBuffer offset:0 atIndex:3];
+            [renderCommandEncoder setFragmentBuffer:_particleConstantsBuffer offset:0 atIndex:1]; // Breathing constants
             
             // Draw small particle cubes
             _boxMesh->drawInstanced(renderCommandEncoder, &poseConstants[i], 1, _instanceBuffer, NUM_INSTANCES);
@@ -603,6 +627,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setDepthStencilState:_glowDepthStencilState];      // No depth write
         [renderCommandEncoder setRenderPipelineState:_glowRenderPipelineState];   // Transparent glow shader
         
+        // Bind velocity buffer for glow effect breathing
+        [renderCommandEncoder setVertexBuffer:_particleVelocitiesBuffer offset:0 atIndex:3];
+        [renderCommandEncoder setFragmentBuffer:_particleConstantsBuffer offset:0 atIndex:1]; // Breathing constants
+        
         // Draw large glow cubes (both eyes simultaneously)
         _glowMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);
 
@@ -621,6 +649,10 @@ void SpatialRenderer::drawAndPresent(cp_frame_t frame, cp_drawable_t drawable) {
         [renderCommandEncoder setFrontFacingWinding:MTLWindingCounterClockwise];
         [renderCommandEncoder setDepthStencilState:_contentDepthStencilState];
         [renderCommandEncoder setRenderPipelineState:_contentRenderPipelineState];
+        
+        // Bind velocity buffer for main particles breathing
+        [renderCommandEncoder setVertexBuffer:_particleVelocitiesBuffer offset:0 atIndex:3];
+        [renderCommandEncoder setFragmentBuffer:_particleConstantsBuffer offset:0 atIndex:1]; // Breathing constants
         
         // Draw small particle cubes (both eyes simultaneously)
         _boxMesh->drawInstanced(renderCommandEncoder, poseConstants.data(), viewCount, _instanceBuffer, NUM_INSTANCES);

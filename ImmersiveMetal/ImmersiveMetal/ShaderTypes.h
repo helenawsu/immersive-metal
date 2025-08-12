@@ -34,6 +34,10 @@ struct ParticleConstants {
     float damping;                  // Velocity damping factor
     float centerPullStrength;       // Attraction to head position
     float boundary;                 // Boundary for particle containment
+    float currentTime;              // Current time for breathing animation
+    float breathingFrequency;       // Base breathing frequency (breaths per second)
+    float breathingIntensity;       // Breathing intensity multiplier
+    float velocityFrequencyScale;   // How much velocity affects frequency
 };
 
 // Trail rendering constants for GPU compute shader

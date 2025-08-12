@@ -19,6 +19,8 @@ struct VertexOut {
     float4 position [[position]];      // Screen position (clip space)
     float3 viewNormal;                 // Normal in camera space
     float2 texCoords;                  // UV coordinates
+    float3 velocity;                   // Particle velocity for breathing effect
+    float instanceIndex;               // Instance ID passed from vertex shader
 };
 
 // === VERTEX OUTPUT: Layered Rendering (Stereo) ===
@@ -26,6 +28,8 @@ struct LayeredVertexOut {
     float4 position [[position]];
     float3 viewNormal;
     float2 texCoords;
+    float3 velocity;                   // Particle velocity for breathing effect
+    float instanceIndex;               // Instance ID passed from vertex shader
     uint renderTargetIndex [[render_target_array_index]]; // Which eye (0/1)
     uint viewportIndex [[viewport_array_index]];          // Viewport routing
 };
@@ -35,6 +39,8 @@ struct FragmentIn {
     float4 position [[position]];     // Pixel screen position
     float3 viewNormal;                // Interpolated normal
     float2 texCoords;                 // Interpolated UV coordinates
+    float3 velocity;                  // Interpolated velocity for breathing
+    float instanceIndex;              // Interpolated instance index
     uint renderTargetIndex [[render_target_array_index]];
     uint viewportIndex [[viewport_array_index]];
 };
@@ -51,6 +57,7 @@ struct FragmentIn {
 LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
                              constant PoseConstants *poses [[buffer(1)]],
                              constant float4x4 *instanceMatrices [[buffer(2)]], // Array of instance transform matrices
+                             constant float3 *particleVelocities [[buffer(3)]], // Array of particle velocities
                              uint amplificationID [[amplification_id]],
                              uint instanceID [[instance_id]])  // GPU-provided instance index (0, 1, 2, 3...)
 {
@@ -62,6 +69,7 @@ LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
     // instanceID is automatically provided by GPU for each instance in the draw call
     // GPU handles all instances in parallel - much more efficient!
     constant auto &instanceMatrix = instanceMatrices[instanceID];
+    constant auto &velocity = particleVelocities[instanceID];
     
     LayeredVertexOut out;
     
@@ -79,6 +87,12 @@ LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
     out.texCoords = in.texCoords;
     out.texCoords.x = 1.0f - out.texCoords.x;
     
+    // === VELOCITY PASS-THROUGH ===
+    out.velocity = velocity;
+    
+    // === INSTANCE ID PASS-THROUGH ===
+    out.instanceIndex = float(instanceID);
+    
     // === MULTI-VIEW OUTPUT ROUTING ===
     if (useLayeredRendering) {
         out.renderTargetIndex = amplificationID;
@@ -94,24 +108,29 @@ LayeredVertexOut vertex_main(VertexIn in [[stage_in]],
 VertexOut vertex_dedicated_main(VertexIn in [[stage_in]],
                                 constant PoseConstants *poses [[buffer(1)]],
                                 constant float4x4 *instanceMatrices [[buffer(2)]], // Array of instance transform matrices
+                                constant float3 *particleVelocities [[buffer(3)]], // Array of particle velocities
                                 uint instanceID [[instance_id]])  // GPU-provided instance index
 {
     constant auto &pose = poses[0];
     constant auto &instanceMatrix = instanceMatrices[instanceID];  // Use instanceID to select transform
+    constant auto &velocity = particleVelocities[instanceID];
     
     VertexOut out;
     out.position = pose.projectionMatrix * pose.viewMatrix * instanceMatrix * float4(in.position, 1.0f);
     out.viewNormal = (pose.viewMatrix * instanceMatrix * float4(in.normal, 0.0f)).xyz;
     out.texCoords = in.texCoords;
     out.texCoords.x = 1.0f - out.texCoords.x; // Flip uvs horizontally to match Model I/O
+    out.velocity = velocity;
+    out.instanceIndex = float(instanceID);  // Pass instance ID to fragment shader
     return out;
 }
 
-// === FRAGMENT SHADER: PIXEL COLOR CALCULATION ===
+// === FRAGMENT SHADER: PIXEL COLOR CALCULATION WITH VELOCITY-BASED BREATHING ===
 // Runs once per pixel to determine final color output
 [[fragment]]
 half4 fragment_main(FragmentIn in [[stage_in]],
-                    texture2d<half, access::sample> texture [[texture(0)]])
+                    texture2d<half, access::sample> texture [[texture(0)]],
+                    constant ParticleConstants &constants [[buffer(1)]])
 {
     // === TEXTURE SAMPLING ===
     // Create a sampler that defines how to read the texture
@@ -120,15 +139,60 @@ half4 fragment_main(FragmentIn in [[stage_in]],
     // Sample the diffuse texture at the interpolated UV coordinates
     half4 color = texture.sample(environmentSampler, in.texCoords);
     
+    // === VELOCITY-BASED BREATHING EFFECT ===
+    // Calculate velocity magnitude for frequency modulation
+    float velocityMagnitude = length(in.velocity);
+    
+    // Dynamic frequency based on velocity (faster particles breathe faster)
+    float dynamicFrequency = constants.breathingFrequency * (1.0 + velocityMagnitude * constants.velocityFrequencyScale);
+    
+    // Per-particle phase offset for organic variation
+    float phaseOffset = in.instanceIndex * 0.1;
+    
+    // Calculate breathing phase using dynamic frequency
+    float breathingPhase = sin((constants.currentTime * dynamicFrequency * 2.0 * 3.14159) + phaseOffset);
+    
+    // Apply breathing intensity to create opacity oscillation
+    // Map breathingPhase (-1 to 1) to alpha range (0.2 to 1.0) for smooth fade
+    float alphaMultiplier = 0.6 + 0.4 * (breathingPhase * constants.breathingIntensity);
+    alphaMultiplier = clamp(alphaMultiplier, 0.2, 1.0); // Keep alpha in valid range
+    
+    // Apply breathing effect to alpha channel only (particles fade in/out)
+    color.a *= half(alphaMultiplier);
+    
     return color;
 }
 
-// === SIMPLE GLOW FRAGMENT SHADER ===
-// Creates transparent red glow cubes for debugging visibility
+// === GLOW FRAGMENT SHADER WITH VELOCITY-BASED BREATHING ===
+// Creates transparent cyan glow cubes with breathing effect
 [[fragment]]
-half4 fragment_glow(FragmentIn in [[stage_in]])
+half4 fragment_glow(FragmentIn in [[stage_in]],
+                    constant ParticleConstants &constants [[buffer(1)]])
 {
-    return half4(0.0, 1.0, 1.0, 0.5); // cyan
+    // Base glow color (cyan)
+    half4 color = half4(0.0, 1.0, 1.0, 0.5);
+    
+    // === VELOCITY-BASED BREATHING EFFECT ===
+    // Calculate velocity magnitude for frequency modulation
+    float velocityMagnitude = length(in.velocity);
+    
+    // Dynamic frequency based on velocity (faster particles breathe faster)
+    float dynamicFrequency = constants.breathingFrequency * (1.0 + velocityMagnitude * constants.velocityFrequencyScale);
+    
+    // Per-particle phase offset for organic variation
+    float phaseOffset = in.instanceIndex * 0.1;
+    
+    // Calculate breathing phase using dynamic frequency
+    float breathingPhase = sin((constants.currentTime * dynamicFrequency * 2.0 * 3.14159) + phaseOffset);
+    
+    // Apply breathing intensity to create brightness oscillation
+    float breathingMultiplier = 1.0 + (breathingPhase * constants.breathingIntensity);
+    
+    // Apply breathing effect to RGB channels AND alpha channel
+    color.rgb *= half3(breathingMultiplier);
+    color.a *= half(breathingMultiplier);  // Alpha breathing makes glow fade in/out
+    
+    return color;
 }
 
 // === TRAIL FRAGMENT SHADER WITH AGE-BASED FADING ===
